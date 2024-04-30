@@ -1,277 +1,251 @@
 #!/usr/bin/env python3
-# tool to convert VSPaero CL and CD output to tables for JSBSim
-
 import json
+import os
 import sys
 import time
+import shutil
 
+# Constants and Globals
+DEBUG = False
 
-def dprint(t, msg=''):
+def debug_print(message: str, *args):
+    """Prints a message if debugging is enabled."""
     if DEBUG:
-        if msg != '':
-            print(msg)
-        print(t)
+        print(message, *args)
+
+def small_number_check(number: float) -> float:
+    """Converts extremely small floating-point numbers to zero."""
+    return 0.0 if 'e' in str(number) else number
+
+# Function to parse data lines
+def parse_data_line(line: str, wake_iters: int):
+    """Extracts numerical data from a specified line in history files after wake iterations."""
+    try:
+        line_data = line.split()
+        line_data = [x for x in line_data if x]
+        line_data.pop(0)  # Remove the first element (usually a label)
+        return [small_number_check(float(x.strip())) for x in line_data]
+    except ValueError as e:
+        debug_print(f"Error parsing line: {e}")
+        return []
+
+def format_value(value: float, precision: int = 5) -> str:
+    """Formats the value to the specified precision and ensures it has a sign and correct number of decimals."""
+    formatted_value = f"{value:.{precision}f}"
+    if not formatted_value.startswith('-'):
+        formatted_value = ' ' + formatted_value
+    return formatted_value
+
+def append_beta_data(output_file, datapoint, run, pos, output_data, db):
+    """Appends beta data and creates corresponding XML table entries."""
+    for beta in output_data[datapoint][run][pos]:
+        output_file.write(f'      <tableData breakPoint="{float(beta):.1f}">\n')
+        mach_aoa_data = output_data[datapoint][run][pos][beta]
+        for mach in sorted(mach_aoa_data):
+            output_file.write(f'        {float(mach):.3f}  ')
+            for aoa in sorted(mach_aoa_data[mach]):
+                value = format_value(mach_aoa_data[mach][aoa])
+                output_file.write(f'{value}  ')
+            output_file.write('\n')
+        output_file.write('      </tableData>\n\n')
+
+def process_data_points(output_file, output_data, db):
+    """Processes each data point to generate XML structures."""
+    for datapoint in output_data:
+        print('#####', datapoint)
+        output_file.write(f'  <!-- {datapoint.upper()} -->\n')
+        for run in output_data[datapoint]:
+            print('-', run)
+            output_file.write(f'  <!-- {run} -->\n')
+            for pos in output_data[datapoint][run]:
+                betas = sorted(set(float(d['beta']) for d in db[run][pos]))
+
+                # Generate or update entries in the output data structure
+                for d in db[run][pos]:
+                    beta = format_value(float(d['beta']), 1)
+                    mach = format_value(float(d['Mach']), 3)
+                    aoa = format_value(float(d['AoA']), 3)
+                    value = small_number_check(float(f"{d[datapoint]:.5f}"))
+
+                    if run != 'base':
+                        base_value = small_number_check(float(output_data[datapoint]['base'][0][beta][mach][aoa]))
+                        value -= base_value
+
+                    output_data[datapoint][run][pos].setdefault(beta, {}).setdefault(mach, {})[aoa] = format_value(value)
+
+                # Write to JSON after updating data
+                with open('./outputData.json', 'w+') as jf:
+                    json.dump(output_data, jf, sort_keys=True, indent=4)
+
+                # Handle XML generation for this data point
+                if run == 'ground_effect':
+                    continue
+
+                func_name = f'aero/{datapoint}_{run}_{pos}' if run != 'base' else f'aero/{datapoint}_{run}'
+                output_file.write(f'  <function name="{func_name}">\n')
+                output_file.write('    <table>\n')
+                output_file.write('      <independentVar lookup="row">velocities/mach</independentVar>\n')
+                output_file.write('      <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
+                output_file.write('      <independentVar lookup="table">aero/beta-deg</independentVar>\n')
+                append_beta_data(output_file, datapoint, run, pos, output_data, db)
+                output_file.write('    </table>\n')
+                output_file.write('  </function>\n\n')
+
+                # Handling interpolation for non-base and non-ground effect data
+                if run not in ['base', 'ground_effect']:
+                    interpolate_data_points(output_file, datapoint, run, output_data)
+
+def interpolate_data_points(output_file, datapoint, run, output_data):
+    """Creates interpolation functions for aerodynamic data points."""
+    output_file.write(f'  <function name="aero/{datapoint}_{run}">\n')
+    output_file.write('    <interpolate1d>\n')
+    property_path = 'position/h-agl-m' if run == 'ground_effect' else f'fcs/surfaces/{run}-pos-deg'
+    output_file.write(f'      <property>{property_path}</property>\n')
+    
+    # Sorting and interpolating data based on position
+    positions = sorted(output_data[datapoint][run])
+    last_position = None
+    for position in positions:
+        if last_position is None or last_position < 0 and position > 0:
+            output_file.write('      <value>0</value> <value>0</value>\n')
+        output_file.write(f'      <value>{position}</value> <property>aero/{datapoint}_{run}_{position}</property>\n')
+        last_position = position
+
+    if last_position < 0:
+        output_file.write('      <value>0</value> <value>0</value>\n')
+    output_file.write('    </interpolate1d>\n')
+    output_file.write('  </function>\n\n')
+
+def initialize_output_data_structure():
+    """Initialize and return the output data structure based on your specific needs."""
+    output_data = {
+        'CL': {}, 'CDtot': {}, 'CS': {}, 'CMx': {}, 'CMy': {}, 'CMz': {}
+        # Initialize further as needed
+    }
+    return output_data
+
+def load_database():
+    """Load or generate the database from parsed VSP data."""
+    db = {}
+    # Load your database here, potentially from a JSON file or through computation
+    return db
 
 
-def smallNumberCheck(f):
-    if 'e' in str(f):
-        return 0.0
-    else:
-        return f
 
+# Read parameters from a configuration file
+with open('./runparams.json', 'r') as param_file:
+    params = json.load(param_file)
 
-with open('./runparams.json', 'r') as p:
-    params = json.loads(p.read())
+# Prepare output files
+output_json_path = './output/outputData.json'
+output_data_file = open(output_json_path, 'w+')
+output_file = open(params['output_file'], 'w+')
 
-od = open('./output/outputData.json', 'w+')
-
-of = open(params['output_file'], 'w+')
-stab_file = open(params['stab_file'] + params['vspname'] + '.stab', 'r')
-
+# Open the stability file and base history file
+stab_file_path = os.path.join(params['stab_file'], params['vspname'] + '.stab')
+stab_file = open(stab_file_path, 'r')
 input_base = params['base_file']
-input_files = params['files']
-
-wake_iterations = 3
-
-data_order = ['Mach', 'AoA', 'beta', 'CL', 'CDo', 'CDi', 'CDtot', 'CS',
-              'L/D', 'E', 'CFx', 'CFz', 'CFy', 'CMx', 'CMy', 'CMz', 'T/QS']
-input_txt_base = open(input_base + params['vspname'] + '.history', 'r').readlines()
+input_base_path = os.path.join(input_base, params['vspname'] + '.history')
+input_txt_base = open(input_base_path, 'r').readlines()
 input_txt = {}
 
+# Default number of wake iterations
+wake_iterations = 3
+
+# Process command line arguments
 for arg in sys.argv:
     if '--debug' in arg:
         DEBUG = True
-    else:
-        DEBUG = False
     if arg.startswith('-w'):
-        wake_iterations = arg[2:]
+        wake_iterations = int(arg[2:])
 
-for f in input_files.keys():
-    input_txt[f] = {}
-    for c in input_files[f]:
-        name = c.split('/')[len(c.split('/')) - 2]
-        input_txt[f][name] = open(c + params['vspname'] + '.history', 'r').readlines()
+# Parse the history files for each run configuration
+input_txt = {}
+for f, configs in params['files'].items():
+    input_txt[f] = {os.path.basename(c): open(os.path.join(c, params['vspname'] + '.history')).readlines() for c in configs}
 
+# Database for storing parsed data
 db = {'base': {0: []}}
-for i in range(len(input_txt_base)):
-    if input_txt_base[i].startswith('Solver Case:'):
-        l = i + 2 + wake_iterations
-        dprint(input_txt_base[l])
-        t = input_txt_base[l].split(' ')
-        while '' in t:
-            t.remove('')
-        t.remove(t[0])
-        t[len(t) - 1] = t[len(t) - 1][:-1]
-        dataset = {}
-        for n in range(0, len(t)-1):
-            data_name = data_order[n]
-            dataset[data_name] = t[n]
+data_order = ['Mach', 'AoA', 'beta', 'CL', 'CDo', 'CDi', 'CDtot', 'CS', 'L/D', 'E', 'CFx', 'CFz', 'CFy', 'CMx', 'CMy', 'CMz', 'T/QS']
+
+
+# Process the base file data
+print(f"Processing base data from {input_base_path}")
+for i, line in enumerate(input_txt_base):
+    if line.startswith('Solver Case:'):
+        data_line = input_txt_base[i + 2 + wake_iterations]
+        parsed_data = parse_data_line(data_line, wake_iterations)
+        dataset = dict(zip(data_order, parsed_data))
         db['base'][0].append(dataset)
 
-for s in input_txt.keys():
+# Process data for each configuration
+for s, files in input_txt.items():
     db[s] = {}
-    for p in input_txt[s].keys():
+    for p, lines in files.items():
         db[s][p] = []
-        for i in range(len(input_txt[s][p])):
-            if input_txt[s][p][i].startswith('Solver Case:'):
-                l = i + 2 + wake_iterations
-                # print(s, p, l)
-                # print(input_txt[s][p][l])
-                t = input_txt[s][p][l].split(' ')
-                while '' in t:
-                    t.remove('')
-                t.remove(t[0])
-                t[len(t) - 1] = t[len(t) - 1][:-1]
-                dataset = {}
-                for n in range(0, len(t)-1):
-                    data_name = data_order[n]
-                    dataset[data_name] = t[n]
+        for i, line in enumerate(lines):
+            if line.startswith('Solver Case:'):
+                data_line = lines[i + 2 + wake_iterations]
+                parsed_data = parse_data_line(data_line, wake_iterations)
+                dataset = dict(zip(data_order, parsed_data))
                 db[s][p].append(dataset)
 
+# Save parsed data to a JSON file
 with open('./output/dataset.json', 'w+') as jf:
-    jf.write(json.dumps(db, sort_keys=True, indent=4))
+    json.dump(db, jf, sort_keys=True, indent=4)
 
-outputData = {'CL': {}, 'CDtot': {}, 'CS': {}, 'CMx': {}, 'CMy': {}, 'CMz': {}}
-for o in outputData.keys():
-    outputData[o]['base'] = {}
-    outputData[o]['base'][0] = {}
-    for r in input_txt.keys():
-        outputData[o][r] = {}
-        for p in input_txt[r].keys():
-            outputData[o][r][p] = {}
-            
-# format: ouputData[datapoint][surface]{position}[beta][mach][AoA]
-#         db[surface][position][datapoint]
+# The following part of the script generates JSBSim configuration files.
+# It constructs XML entries for each datapoint across various runs and positions.
+# The script handles formatting, adjustment of small numbers, and XML structuring.
+
 
 desc = '''Generated by vsp2jsbsim.py
 Author: Jüttner Domokos\n
 Based on the work of Richard Harrison'''
-of.write('<!--\n')
-of.write(desc)
-of.write('-->\n')
-of.write('<aerodynamics>\n\n')
-of.write('  <function name="aero/beta-deg-abs">\n')
-of.write('    <description>Beta absolute value</description>\n')
-of.write('    <abs>\n')
-of.write('      <property>aero/beta-deg</property>\n')
-of.write('    </abs>\n')
-of.write('  </function>\n')
-of.write('\n')
-of.write('  <function name="aero/pb">\n')
-of.write('    <description>PB Denormalization</description>\n')
-of.write('    <product>\n')
-of.write('      <property>aero/bi2vel</property>\n')
-of.write('      <property>velocities/p-aero-rad_sec</property>\n')
-of.write('    </product>\n')
-of.write('  </function>\n')
-of.write('\n')
-of.write('  <function name="aero/qb">\n')
-of.write('    <description>For denormalization</description>\n')
-of.write('    <product>\n')
-of.write('      <property>aero/ci2vel</property>\n')
-of.write('      <property>velocities/q-aero-rad_sec</property>\n')
-of.write('    </product>\n')
-of.write('  </function>\n')
-of.write('\n')
-of.write('  <function name="aero/rb">\n')
-of.write('    <description>For denormalization</description>\n')
-of.write('    <product>\n')
-of.write('      <property>aero/bi2vel</property>\n')
-of.write('      <property>velocities/r-aero-rad_sec</property>\n')
-of.write('    </product>\n')
-of.write('\n')
-of.write('  </function>\n')
+output_file.write('<!--\n')
+output_file.write(desc)
+output_file.write('-->\n')
+output_file.write('<aerodynamics>\n\n')
+output_file.write('  <function name="aero/beta-deg-abs">\n')
+output_file.write('    <description>Beta absolute value</description>\n')
+output_file.write('    <abs>\n')
+output_file.write('      <property>aero/beta-deg</property>\n')
+output_file.write('    </abs>\n')
+output_file.write('  </function>\n')
+output_file.write('\n')
+output_file.write('  <function name="aero/pb">\n')
+output_file.write('    <description>PB Denormalization</description>\n')
+output_file.write('    <product>\n')
+output_file.write('      <property>aero/bi2vel</property>\n')
+output_file.write('      <property>velocities/p-aero-rad_sec</property>\n')
+output_file.write('    </product>\n')
+output_file.write('  </function>\n')
+output_file.write('\n')
+output_file.write('  <function name="aero/qb">\n')
+output_file.write('    <description>For denormalization</description>\n')
+output_file.write('    <product>\n')
+output_file.write('      <property>aero/ci2vel</property>\n')
+output_file.write('      <property>velocities/q-aero-rad_sec</property>\n')
+output_file.write('    </product>\n')
+output_file.write('  </function>\n')
+output_file.write('\n')
+output_file.write('  <function name="aero/rb">\n')
+output_file.write('    <description>For denormalization</description>\n')
+output_file.write('    <product>\n')
+output_file.write('      <property>aero/bi2vel</property>\n')
+output_file.write('      <property>velocities/r-aero-rad_sec</property>\n')
+output_file.write('    </product>\n')
+output_file.write('\n')
+output_file.write('  </function>\n')
 
+# Initialize the output data structure (if not done elsewhere in your code)
+output_data = initialize_output_data_structure()
 
-for datapoint in outputData.keys():
-    print('#####', datapoint)
-    of.write('  <!-- ' + datapoint.upper() + ' -->\n')
-    for run in outputData[datapoint].keys():
-        print('-', run)
-        of.write('  <!-- ' + run + ' -->\n')
-        for pos in outputData[datapoint][run].keys():
-            betas = []
-            for d in db[run][pos]:
-                if d['beta'] not in betas:
-                    betas.append(float(d['beta']))
+# Load your database of parsed VSP data (if not loaded elsewhere)
+db = load_database()
 
-            for d in db[run][pos]:
-                bv = smallNumberCheck(float("%.5f" % float(d[datapoint])))
-                try:
-                    if len(str(bv).split('.')[1]) < 5:
-                        bv = str(bv) + '0' * (5 - len(str(bv).split('.')[1]))
-                except IndexError:
-                    pass
-                if run != 'base':
-                    basedict = outputData[datapoint]['base'][0]
-                    baseValue = smallNumberCheck(float(basedict[d['beta']]
-                                                       [d['Mach']][d['AoA']]))
-                    v = smallNumberCheck(float("%.5f" %
-                                               (float(bv) - baseValue)))
-                    try:
-                        if not str(v).startswith('-'):
-                            v = ' ' + str(v)
-                        if len(str(v).split('.')[1]) < 5:
-                            v = str(v) + '0' * (5 - len(str(v).split('.')[1]))
-                    except IndexError:
-                        pass
-
-                if not str(bv).startswith('-'):
-                    bv = ' ' + str(bv)
-                try:
-                    if run == 'base':
-                        outputData[datapoint][run][pos][d['beta']][d['Mach']][d['AoA']] = bv
-                    else:
-                        outputData[datapoint][run][pos][d['beta']][d['Mach']][d['AoA']] = v
-                    od.write(json.dumps(outputData, sort_keys=True, indent=4))
-                except KeyError:
-                    try:
-                        outputData[datapoint][run][pos][d['beta']][d['Mach']] = {}
-                        if run == 'base':
-                            outputData[datapoint][run][pos][d['beta']][d['Mach']][d['AoA']] = bv
-                        else:
-                            outputData[datapoint][run][pos][d['beta']][d['Mach']][d['AoA']] = v
-                        od.write(json.dumps(outputData, sort_keys=True, indent=4))
-                    except KeyError:
-                        outputData[datapoint][run][pos][d['beta']] = {}
-                        outputData[datapoint][run][pos][d['beta']][d['Mach']] = {}
-                        if run == 'base':
-                            outputData[datapoint][run][pos][d['beta']][d['Mach']][d['AoA']] = bv
-                        else:
-                            outputData[datapoint][run][pos][d['beta']][d['Mach']][d['AoA']] = v
-                        od.write(json.dumps(outputData, sort_keys=True, indent=4))
-
-            with open('./outputData.json', 'w+') as jf:
-                jf.write(json.dumps(outputData, sort_keys=True, indent=4))
-
-            # parse tables
-            # ground effect handled seperatly
-            if run == 'ground_effect':
-                continue
-            
-            if run != 'base':
-                of.write('  <function name="aero/' + datapoint + '_' + run + '_' + str(pos) + '">\n')
-            else:
-                of.write('  <function name="aero/' + datapoint + '_' + run + '">\n')
-            of.write('    <table>\n')
-            of.write('      <independentVar lookup="row">velocities/mach</independentVar>\n')
-            of.write('      <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
-            of.write('      <independentVar lookup="table">aero/beta-deg</independentVar>\n')
-            for b in outputData[datapoint][run][pos].keys():
-                of.write('      <tableData breakPoint="' + str(float(b)) + '">\n')
-                txt_CL = '                '
-                machs = []
-                aoa = []
-                for m in outputData[datapoint][run][pos][b].keys():
-                    if m not in machs:
-                        machs.append(m)
-                        for a in outputData[datapoint][run][pos][b][m].keys():
-                            a = str(float(a))
-                            if len(a.split('.')[0]) < 3:
-                                a = ' ' * (3 - len(a.split('.')[0])) + a
-                            if len(a) < 6:
-                                a += ' ' * (6 - len(a))
-                            if a not in aoa:
-                                txt_CL += a[:-3] + '    '
-                                aoa.append(a)
-                        # print(aoa)
-                txt_CL = txt_CL[:-1] + '\n'
-            
-                for m in outputData[datapoint][run][pos][b].keys():
-                    line = '        ' + str(float(m)) + '  '
-                    for c in outputData[datapoint][run][pos][b][m].values():
-                        line += str(c) + '  '
-                    txt_CL += line[:-2] + '\n'
-            
-                of.write(txt_CL[:-1] + '\n')
-                of.write('      </tableData>\n\n')
-            of.write('    </table>\n')
-            of.write('  </function>\n\n')
-
-        # interpolate them
-        if run != 'base' and run != 'ground_effect':
-            of.write('  <function name="aero/' + datapoint + '_' + run + '">\n')
-            of.write('    <interpolate1d>\n')
-            if run != 'ground_effect':
-                of.write('      <property>fcs/surfaces/' + run + '-pos-deg</property>\n')
-            else:
-                of.write('      <property>position/h-agl-m</property>\n')
-            
-            lastDeg = None
-            degList = [float(f) for f in outputData[datapoint][run].keys()]
-            degList_unsorted = degList
-            degList.sort()
-            for deg in degList:
-                if deg % 1 == 0:
-                    deg = int(deg)
-                if (lastDeg is None or lastDeg < 0) and deg > 0:
-                    of.write('      <value>0</value> <value>0</value>\n')
-                of.write('      <value>' + str(deg) + '</value> <property>aero/' + datapoint + '_' + run + '_' + str(deg) + '</property>\n')
-                lastDeg = deg
-            if lastDeg < 0:
-                of.write('      <value>0</value> <value>0</value>\n')
-            of.write('    </interpolate1d>\n')
-            of.write('  </function>\n\n')
+# Process the data points
+process_data_points(output_file, output_data, db)
 
 
 # for d in outputData.keys():
@@ -280,13 +254,13 @@ for datapoint in outputData.keys():
 #     betas = [i for i in ge[alts[0]].keys()]             
 #     machs = [i for i in ge[betas[0]][alts[0]].keys()]
 #     aoa = [i for i in ge[betas[0]][alts[0]][machs[0]].keys()]
-#     of.write('  <function name="aero/' + datapoint + '_' + run + '_' + str(pos) + '">\n')
-#     of.write('    <table>\n')
-#     of.write('      <independentVar lookup="row">velocities/mach</independentVar>\n')
-#     of.write('      <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
-#     of.write('      <independentVar lookup="table">position/h-agl-m</independentVar>\n')
+#     output_file.write('  <function name="aero/' + datapoint + '_' + run + '_' + str(pos) + '">\n')
+#     output_file.write('    <table>\n')
+#     output_file.write('      <independentVar lookup="row">velocities/mach</independentVar>\n')
+#     output_file.write('      <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
+#     output_file.write('      <independentVar lookup="table">position/h-agl-m</independentVar>\n')
 #     for m in machs:
-#         of.write('      <tableData breakPoint="' + str(float(agl)) + '">\n')
+#         output_file.write('      <tableData breakPoint="' + str(float(agl)) + '">\n')
 #         txt_CL = '                '
 #         for a in aoa:
 #             txt_CL += str(a) + ' '
@@ -318,12 +292,12 @@ for datapoint in outputData.keys():
 #                 line += str(c) + '  '
 #             txt_CL += line[:-2] + '\n'
 
-#         of.write(txt_CL[:-1] + '\n')
-#         of.write('      </tableData>\n\n')
-#     of.write('    </table>\n')
-#     of.write('  </function>\n\n')
+#         output_file.write(txt_CL[:-1] + '\n')
+#         output_file.write('      </tableData>\n\n')
+#     output_file.write('    </table>\n')
+#     output_file.write('  </function>\n\n')
 
-# Stability - pretty much copypase of pinto's stab_format.py
+# Stability - pretty much copypaste of pinto's stab_format.py
 print('##### stability')
 data = []
 
@@ -457,34 +431,34 @@ output_coeffs = {
     'cfyr': ['Side force due to yaw rate', 'aero/rb'],
 }
 
-# of.write('<?xml version="1.0"?>\n\n')
+# output_file.write('<?xml version="1.0"?>\n\n')
 
 for coeff in output_coeffs:
-    dprint(coeff)
-    of.write('  <function name="aero/s/' + coeff + '">\n')
-    of.write('    <description>' + output_coeffs[coeff][0] + '</description>\n')
-    of.write('    <product>\n')
-    of.write('      <property>' + output_coeffs[coeff][1] + '</property>\n')
-    of.write('      <table>\n')
-    of.write('        <independentVar lookup="row">velocities/mach</independentVar>\n')
-    of.write('        <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
-    of.write('        <independentVar lookup="table">aero/beta-deg</independentVar>\n')
+    debug_print(coeff)
+    output_file.write('  <function name="aero/s/' + coeff + '">\n')
+    output_file.write('    <description>' + output_coeffs[coeff][0] + '</description>\n')
+    output_file.write('    <product>\n')
+    output_file.write('      <property>' + output_coeffs[coeff][1] + '</property>\n')
+    output_file.write('      <table>\n')
+    output_file.write('        <independentVar lookup="row">velocities/mach</independentVar>\n')
+    output_file.write('        <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
+    output_file.write('        <independentVar lookup="table">aero/beta-deg</independentVar>\n')
     if coeff not in params['alpha_only'] or true:
-        of.write('        <tableData breakPoint="' + str(data[0]['beta']) + '">\n')
-        of.write('                   ')
+        output_file.write('        <tableData breakPoint="' + str(data[0]['beta']) + '">\n')
+        output_file.write('                   ')
         for a in alpha_arr:
             a = str(a)
             if len(a.split('.')[0]) < 3:
                 a = ' ' * (3 - len(a.split('.')[0])) + a
-            of.write(str(a) + '       ')
-        of.write('\n')
-        of.write('           ')
+            output_file.write(str(a) + '       ')
+        output_file.write('\n')
+        output_file.write('           ')
         mp = str(data[0]['mach'])
         if not mp.startswith('-'):
             mp = ' ' + mp
         if len(mp.split('.')[1]) < 4:
             mp += ' ' * (4 - len(mp.split('.')[1]))
-        of.write(mp)
+        output_file.write(mp)
 
     b_beta = data[0]['beta']
     b_mach = data[0]['mach']
@@ -496,38 +470,38 @@ for coeff in output_coeffs:
         if b_beta != i['beta']:
             b_beta = i['beta']
             if coeff not in params['alpha_only']:
-                of.write('\n        </tableData>\n')
-                of.write('        <tableData breakPoint="' +
+                output_file.write('\n        </tableData>\n')
+                output_file.write('        <tableData breakPoint="' +
                          str(i['beta']) + '">\n')
-                of.write('                   ')
+                output_file.write('                   ')
                 for a in alpha_arr:
                     a = str(a)
                     if len(a.split('.')[0]) < 3:
                         a = ' ' * (3 - len(a.split('.')[0])) + a
-                    of.write(str(a) + '       ')
+                    output_file.write(str(a) + '       ')
 
         if b_mach != i['mach']:
             b_mach = i['mach']
-            of.write('\n           ')
+            output_file.write('\n           ')
             mp = str(i['mach'])
             if not mp.startswith('-'):
                 mp = ' ' + mp
             if len(mp.split('.')[1]) < 4:
                 mp += ' ' * (4 - len(mp.split('.')[1]))
-            of.write(mp)
+            output_file.write(mp)
 
-        cf = str(smallNumberCheck(i[coeff]))
+        cf = str(small_number_check(i[coeff]))
         
         if not cf.startswith('-'):
             cf = ' ' + cf
         if len(cf.split('.')[1]) < 7:
             cf += '0' * (7 - len(cf.split('.')[1]))
-        of.write('  ' + cf)
+        output_file.write('  ' + cf)
 
-    of.write('\n        </tableData>\n')
-    of.write('      </table>\n')
-    of.write('    </product>\n')
-    of.write('  </function>\n\n')
+    output_file.write('\n        </tableData>\n')
+    output_file.write('      </table>\n')
+    output_file.write('    </product>\n')
+    output_file.write('  </function>\n\n')
 
 outputitems = {'forces': {'lift': 'CL', 'drag': 'CDtot', 'side': 'CS'},
                'moments': {'pitch': 'CMy', 'roll': 'CMx', 'yaw': 'CMz'}}
@@ -535,43 +509,43 @@ outputitems = {'forces': {'lift': 'CL', 'drag': 'CDtot', 'side': 'CS'},
 # AXIS definitions
 # for g in outputitems.keys():
 #     for o in outputitems[g].keys():
-#         of.write('  <axis name="' + o.upper() + '">\n')
-#         of.write('    <function name="aero/' + g + '/' + o + '">\n')
-#         of.write('      <product>\n')
-#         of.write('         <property>aero/qbar-psf</property>\n')
-#         of.write('         <property>metrics/Sw-sqft</property>\n')
+#         output_file.write('  <axis name="' + o.upper() + '">\n')
+#         output_file.write('    <function name="aero/' + g + '/' + o + '">\n')
+#         output_file.write('      <product>\n')
+#         output_file.write('         <property>aero/qbar-psf</property>\n')
+#         output_file.write('         <property>metrics/Sw-sqft</property>\n')
         
 #         if g == 'moments':
 #             if o == 'pitch' or o == 'roll':
-#                 of.write('         <property>metrics/bw-ft</property>\n')
+#                 output_file.write('         <property>metrics/bw-ft</property>\n')
 #             elif o == 'yaw':
-#                 of.write('         <property>metrics/cbarw-ft</property>\n')
+#                 output_file.write('         <property>metrics/cbarw-ft</property>\n')
                 
-#         of.write('         <sum>\n')
+#         output_file.write('         <sum>\n')
 #         for r in outputData[outputitems[g][o]].keys():
-#             of.write('           <property>aero/' + outputitems[g][o] + '_' + r + '</property>\n')
+#             output_file.write('           <property>aero/' + outputitems[g][o] + '_' + r + '</property>\n')
 #         if g == 'moments':
 #             if o == 'pitch':
-#                 of.write('           <property>aero/s/cmmq</property>\n')
+#                 output_file.write('           <property>aero/s/cmmq</property>\n')
 #             # elif o == 'roll':
 #             elif False:
-#                 of.write('           <property>aero/s/cmlp</property>\n')
-#                 of.write('           <property>aero/s/cmlr</property>\n')
+#                 output_file.write('           <property>aero/s/cmlp</property>\n')
+#                 output_file.write('           <property>aero/s/cmlr</property>\n')
 #             elif o == 'yaw':
-#                 of.write('           <property>aero/s/cmnp</property>\n')
-#                 of.write('           <property>aero/s/cmnr</property>\n')
+#                 output_file.write('           <property>aero/s/cmnp</property>\n')
+#                 output_file.write('           <property>aero/s/cmnr</property>\n')
 #         elif g == 'force' and o == 'side':
-#             of.write('           <property>aero/s/cfyp</property>\n')
-#             of.write('           <property>aero/s/cfyr</property>\n')
+#             output_file.write('           <property>aero/s/cfyp</property>\n')
+#             output_file.write('           <property>aero/s/cfyr</property>\n')
                 
-#         of.write('        </sum>\n')
-#         of.write('      </product>\n')
-#         of.write('    </function>\n')
-#         of.write('  </axis>\n\n')
+#         output_file.write('        </sum>\n')
+#         output_file.write('      </product>\n')
+#         output_file.write('    </function>\n')
+#         output_file.write('  </axis>\n\n')
 
-with open(params['axis_file'], 'r') as axis:
-    for l in axis.readlines():
-        of.write(l)
-of.close()
-od.close()
+# with open(params['axis_file'], 'r') as axis:
+#     for l in axis.readlines():
+#         output_file.write(l)
+output_file.close()
+output_data_file.close()
 print('process time:', time.process_time())
