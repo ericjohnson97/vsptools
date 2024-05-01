@@ -162,6 +162,8 @@ def read_file_content(file_path: str) -> list:
 
 def write_vsp_configuration(case_file_path: str, vsp_filename: str, params: dict, baseprops: dict, configprops: dict, postprops: dict, case: str):
     """Write VSP configuration to file."""
+
+    print(f'Writing VSP configuration for case: {case}, file: {case_file_path + vsp_filename}')
     with open(case_file_path + vsp_filename, 'w') as file:
         for p, value in baseprops.items():
             file.write(f'{p} = {value}\n')
@@ -169,6 +171,7 @@ def write_vsp_configuration(case_file_path: str, vsp_filename: str, params: dict
             file.write(f'{p} = {value}\n')
         for p, value in postprops.items():
             file.write(f'{p} = {value}\n')
+    generate(case_file_path, params['vsp3_file'], case)
 
 def run_solver(case: str, case_file_path: str, args, progress: dict):
     """Run solver for the VSP model based on the case."""
@@ -181,14 +184,19 @@ def run_solver(case: str, case_file_path: str, args, progress: dict):
                  subprocess.run(['bash', './runstab.sh', params[case + '_file'], args.jobs, '0'])
 
         elif os.name == 'nt':
-            if case == 'est':
-                cmd = ['..\..\OpenVSP-3.38.0-win64\\vspaero.exe', '-omp', args.jobs, params['vspname']]
-                print(f"Running command: {cmd}, cwd: {case_file_path}")
-                subprocess.run(cmd, cwd=case_file_path, shell=True)
-            else:
-                cmd = ['..\..\OpenVSP-3.38.0-win64\\vspaero.exe', '-omp', args.jobs, '-stab', params['vspname']]
-                print(f"Running command: {cmd}, cwd: {case_file_path}")
-                subprocess.run(cmd, cwd=case_file_path, shell=True)
+            try:
+                if case == 'est':
+                    cmd = ['..\..\OpenVSP-3.38.0-win64\\vspaero.exe', '-omp', args.jobs, params['vspname']]
+                    print(f"Running command: {cmd}, cwd: {case_file_path}")
+                    subprocess.run(cmd, cwd=case_file_path, shell=True, check=True)
+                else:
+                    cmd = ['..\..\OpenVSP-3.38.0-win64\\vspaero.exe', '-omp', args.jobs, '-stab', params['vspname']]
+                    print(f"Running command: {cmd}, cwd: {case_file_path}")
+                    subprocess.run(cmd, cwd=case_file_path, shell=True, check=True)
+            except subprocess.CalledProcessError as e:
+                # Print an error message and exit the program with a non-zero status
+                print(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+                sys.exit(e.returncode)
 
 
 
@@ -350,10 +358,19 @@ print(f"Beta: {beta}!")
 baseprops = dict()
 reserved_names = {'Mach': mach, 'AoA': aoa, 'Beta': beta, 'ClMax': params['CLmax']['base']}
 
-with open(params['vspname']+'.vspaero', 'r') as v:
+with open( params['vsp_filepath'] + params['vspname']+'.vspaero', 'r') as v:
     for line in v:
-        name, _, value = line.split()
-        baseprops[name] = reserved_names.get(name, value)
+        try:
+            name, value = line.split('=')
+        except ValueError:
+            # Output the problematic line to help with debugging.
+            print(f"Failed to parse the line: '{line}'")
+
+            # Raise a more descriptive error to halt the program or trigger further exception handling.
+            raise ValueError(f"Input line '{line}' is not in the expected 'name=value' format.")
+
+
+        baseprops[name.strip()] = value.strip()
         if name == 'WakeIters':
             break
 
