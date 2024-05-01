@@ -1,0 +1,34 @@
+Sref = 20.844790 
+Cref = 4.758830 
+Bref = 5.118900 
+X_cg = 9.879165 
+Y_cg = 0.000000 
+Z_cg = 1.357769 
+Mach = 0.200000 
+AoA = 1.000000, 5.500000, 10.000000 
+Beta = 0.000000 
+Vinf = 100.000000 
+Rho = 0.002377 
+ReCref = 10000000.000000 
+ClMax = -1.000000 
+MaxTurningAngle = -1.000000 
+Symmetry = NO 
+FarDist = -1.000000 
+NumWakeNodes = 0 
+WakeIters = 0 
+NumberOfControlGroups = 3 
+aileron
+NormalWing_Surf0_aileron,NormalWing_Surf1_aileron
+1, 1
+0
+elevator
+Horz_Surf0_elevator,Horz_Surf1_elevator
+1, -1
+5
+rudder
+Vert_Surf0_rudder
+1
+0
+Preconditioner = Matrix 
+Karman-Tsien Correction = N 
+Stability Type = 0 
