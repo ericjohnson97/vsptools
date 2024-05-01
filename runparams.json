@@ -1,5 +1,8 @@
 {
     "files": {
+        "elevator": [
+            "./output/elevator/-24/"
+        ]
     },
     "base_file": "./output/base/",
     "est_file": "./output/est/",
@@ -8,9 +11,7 @@
     "vsp_filepath": "example/Cessna-210-NASA/",
     "vsp3_file": "Cessna-210.vsp3",
     "vspname" : "Cessna-210_DegenGeom",
-    "manual_set": {
-        "elevator": "Hstab"
-    },
+    "manual_set": { },
     "surf_names": {
         "left-flaperon": "flaperon",
         "right-flaperon": "flaperon"

@@ -44,7 +44,7 @@ def append_beta_data(output_file, datapoint, run, pos, output_data, db):
         for mach in sorted(mach_aoa_data):
             output_file.write(f'        {float(mach):.3f}  ')
             for aoa in sorted(mach_aoa_data[mach]):
-                value = format_value(mach_aoa_data[mach][aoa])
+                value = format_value(float(mach_aoa_data[mach][aoa]))
                 output_file.write(f'{value}  ')
             output_file.write('\n')
         output_file.write('      </tableData>\n\n')
@@ -55,10 +55,9 @@ def process_data_points(output_file, output_data, db):
         print('#####', datapoint)
         output_file.write(f'  <!-- {datapoint.upper()} -->\n')
         for run in output_data[datapoint]:
-            print('-', run)
             output_file.write(f'  <!-- {run} -->\n')
             for pos in output_data[datapoint][run]:
-                betas = sorted(set(float(d['beta']) for d in db[run][pos]))
+                # betas = sorted(set(float(d['beta']) for d in db[run][pos]))
 
                 # Generate or update entries in the output data structure
                 for d in db[run][pos]:
@@ -67,10 +66,11 @@ def process_data_points(output_file, output_data, db):
                     aoa = format_value(float(d['AoA']), 3)
                     value = small_number_check(float(f"{d[datapoint]:.5f}"))
 
-                    if run != 'base':
-                        base_value = small_number_check(float(output_data[datapoint]['base'][0][beta][mach][aoa]))
-                        value -= base_value
-
+                    # TODO: put this back
+                    # if run != 'base':
+                    #     base_value = small_number_check(float(output_data[datapoint]['base'][0][beta][mach][aoa]))
+                    #     value -= base_value
+                    print(type(output_data[datapoint][run]))
                     output_data[datapoint][run][pos].setdefault(beta, {}).setdefault(mach, {})[aoa] = format_value(value)
 
                 # Write to JSON after updating data
@@ -92,8 +92,8 @@ def process_data_points(output_file, output_data, db):
                 output_file.write('  </function>\n\n')
 
                 # Handling interpolation for non-base and non-ground effect data
-                if run not in ['base', 'ground_effect']:
-                    interpolate_data_points(output_file, datapoint, run, output_data)
+                # if run not in ['base', 'ground_effect']:
+                #     interpolate_data_points(output_file, datapoint, run, output_data)
 
 def interpolate_data_points(output_file, datapoint, run, output_data):
     """Creates interpolation functions for aerodynamic data points."""
@@ -119,15 +119,15 @@ def interpolate_data_points(output_file, datapoint, run, output_data):
 def initialize_output_data_structure():
     """Initialize and return the output data structure based on your specific needs."""
     output_data = {
-        'CL': {}, 'CDtot': {}, 'CS': {}, 'CMx': {}, 'CMy': {}, 'CMz': {}
+        'CL': {'elevator' : {'3' : {} } }, 'CDtot': {}, 'CS': {}, 'CMx': {}, 'CMy': {}, 'CMz': {}
         # Initialize further as needed
     }
     return output_data
 
 def load_database():
     """Load or generate the database from parsed VSP data."""
-    db = {}
-    # Load your database here, potentially from a JSON file or through computation
+    with open('./output/dataset.json', 'r') as jf:
+        db = json.load(jf)
     return db
 
 
@@ -194,13 +194,14 @@ for i, line in enumerate(input_txt_base):
 for s, files in input_txt.items():
     db[s] = {}
     for p, lines in files.items():
-        db[s][p] = []
+        # TODO: make not hardcoded
+        db[s]["3"] = []
         for i, line in enumerate(lines):
             if line.startswith('Solver Case:'):
                 data_line = lines[i + 2 + wake_iterations]
                 parsed_data = parse_data_line(data_line, wake_iterations)
                 dataset = dict(zip(data_order, parsed_data))
-                db[s][p].append(dataset)
+                db[s]["3"].append(dataset)
 
 # Save parsed data to a JSON file
 with open('./output/dataset.json', 'w+') as jf:

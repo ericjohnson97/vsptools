@@ -185,12 +185,14 @@ def run_solver(case: str, case_file_path: str, args, progress: dict):
 
         elif os.name == 'nt':
             try:
+                vsp_exe_rel = 'OpenVSP-3.38.0-win64\\vspaero.exe'
+                vsp_abs_path = os.path.abspath(vsp_exe_rel)
                 if case == 'est':
-                    cmd = ['..\..\OpenVSP-3.38.0-win64\\vspaero.exe', '-omp', args.jobs, params['vspname']]
+                    cmd = [vsp_abs_path, '-omp', args.jobs, params['vspname']]
                     print(f"Running command: {cmd}, cwd: {case_file_path}")
                     subprocess.run(cmd, cwd=case_file_path, shell=True, check=True)
                 else:
-                    cmd = ['..\..\OpenVSP-3.38.0-win64\\vspaero.exe', '-omp', args.jobs, '-stab', params['vspname']]
+                    cmd = [vsp_abs_path, '-omp', args.jobs, '-stab', params['vspname']]
                     print(f"Running command: {cmd}, cwd: {case_file_path}")
                     subprocess.run(cmd, cwd=case_file_path, shell=True, check=True)
             except subprocess.CalledProcessError as e:
@@ -224,13 +226,13 @@ def process_vsp_files(params: dict, baseprops: dict, progress: dict, ignore_list
             if case_file_path not in progress['completed']:
                 vsp_filename = case + params['vspname'] + '.vspaero'
                 vsp_txt = read_or_copy_vsp_file(vsp_filename, params)
-
                 output = update_vsp_content(vsp_txt, baseprops, params, run)
                 nochange = write_and_compare_output(vsp_filename, output)
                 nochange &= update_csv_if_needed(case, params, run)
 
-                if not nochange or args.force:
-                    run_solver(case, case, args, progress)  # Assuming your 'run_solver' doesn't need 'case_file_path'
+                # TODO: redo nochange logic if you ever want to run incremental changes
+                # if not nochange or args.force:
+                run_solver(case, case, args, progress)  # Assuming your 'run_solver' doesn't need 'case_file_path'
 
                 progress['completed'].append(case_file_path)
 
@@ -240,7 +242,6 @@ def read_or_copy_vsp_file(filename: str, params: dict) -> list:
         with open(filename, 'r') as file:
             return file.readlines()
     except FileNotFoundError:
-        shutil.copy(params['vspname'] + '.vspaero', filename)
         with open(filename, 'r') as file:
             return file.readlines()
 
@@ -259,22 +260,22 @@ def update_vsp_content(vsp_txt: list, baseprops: dict, params: dict, run: str) -
 
 def write_and_compare_output(filename: str, output: list) -> bool:
     """ Writes output to a file and checks if it changed. """
-    old_content = read_or_copy_vsp_file(filename, {})
+    # old_content = read_or_copy_vsp_file(filename, {})
     with open(filename, 'w') as file:
         file.writelines(output)
-    new_content = read_or_copy_vsp_file(filename, {})
-    return new_content == old_content
+    # new_content = read_or_copy_vsp_file(filename, {})
+    return True
 
 def update_csv_if_needed(case: str, params: dict, run: str) -> bool:
     """ Updates CSV if required and checks for changes. """
     csv_filename = case + params['vspname'] + '.csv'
-    old_content = read_or_copy_vsp_file(csv_filename, {})
+    # old_content = read_or_copy_vsp_file(csv_filename, {})
     if run not in params['manual_set']:
         generate(case, params['vsp3_file'], run)
     else:
         generate(case, params['vsp3_file'], params['manual_set'][run], True, int(run.split('/')[-2]))
-    new_content = read_or_copy_vsp_file(csv_filename, {})
-    return new_content == old_content
+    # new_content = read_or_copy_vsp_file(csv_filename, {})
+    return True
 
 
 # Read parameters from a JSON file.
