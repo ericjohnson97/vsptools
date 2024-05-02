@@ -62,7 +62,18 @@ options:
 extracts the data from the .history files and formats them into jsbsim tables.
 Takes the same runparams.json as input
 
-It does not create the <axis> definitions, those need to be done manually
+## vsp2jsbsim.py design:
+
+the script performs the following high-level steps in this order:
+- read runparams.json
+- read .history files and map aerodata to a database named `dataset.json`
+- write database to file to allow for manual inspection if needed
+- process aerodata in database and write data to JSB functions in output XML
+- read stability file from stability analysis
+- process stability data and write data to JSB functions in output XML
+- assign stability and aerodata to the appropriate axis
+- write output XML
+
 
 # First time setup:
 - create .vsp3 model with all necessary control surfaces. control surface names should match the names in runparams['files'], except the ones specified in manual_set to be rotated instead of using subsurfaces.

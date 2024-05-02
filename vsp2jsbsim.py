@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import commentjson
 import json
 import os
 import sys
@@ -40,16 +41,35 @@ def append_beta_data(output_file, datapoint, run, pos, output_data, db):
     """Appends beta data and creates corresponding XML table entries."""
     for beta in output_data[datapoint][run][pos]:
         output_file.write(f'      <tableData breakPoint="{float(beta):.1f}">\n')
+        
+        # Gather all AoA values to create the header row
         mach_aoa_data = output_data[datapoint][run][pos][beta]
-        for mach in sorted(mach_aoa_data):
+        aoa_set = set()
+        for mach in mach_aoa_data:
+            aoa_set.update(mach_aoa_data[mach].keys())  # Assuming keys are strings
+
+        sorted_aoas = sorted(aoa_set, key=float)  # Sort AoAs as floats but they are stored as strings
+        
+        # Write AoA headers
+        output_file.write(' ' * 11)  # Proper indentation
+        for aoa in sorted_aoas:
+            output_file.write(f'{float(aoa):10.1f}  ')
+        output_file.write('\n')
+        
+        # Now write the Mach and corresponding values
+        for mach in sorted(mach_aoa_data.keys(), key=float):
             output_file.write(f'        {float(mach):.3f}  ')
-            for aoa in sorted(mach_aoa_data[mach]):
-                value = format_value(float(mach_aoa_data[mach][aoa]))
-                output_file.write(f'{value}  ')
+            for aoa in sorted_aoas:  # Ensure values are written in the order of the headers
+                value = mach_aoa_data[mach].get(aoa, '0.00000')  # Use aoa directly since it's a string
+                # Ensure value is processed as float after formatting
+                formatted_value = format_value(float(value))
+                output_file.write(f'{float(formatted_value):10.5f}  ')
             output_file.write('\n')
         output_file.write('      </tableData>\n\n')
 
-def process_data_points(output_file, output_data, db):
+
+
+def process_data_in_database(output_file, output_data, db):
     """Processes each data point to generate XML structures."""
     for datapoint in output_data:
         print('#####', datapoint)
@@ -92,8 +112,8 @@ def process_data_points(output_file, output_data, db):
                 output_file.write('  </function>\n\n')
 
                 # Handling interpolation for non-base and non-ground effect data
-                # if run not in ['base', 'ground_effect']:
-                #     interpolate_data_points(output_file, datapoint, run, output_data)
+                if run not in ['base', 'ground_effect']:
+                    interpolate_data_points(output_file, datapoint, run, output_data)
 
 def interpolate_data_points(output_file, datapoint, run, output_data):
     """Creates interpolation functions for aerodynamic data points."""
@@ -104,6 +124,7 @@ def interpolate_data_points(output_file, datapoint, run, output_data):
     
     # Sorting and interpolating data based on position
     positions = sorted(output_data[datapoint][run])
+    
     last_position = None
     for position in positions:
         if last_position is None or last_position < 0 and position > 0:
@@ -111,18 +132,11 @@ def interpolate_data_points(output_file, datapoint, run, output_data):
         output_file.write(f'      <value>{position}</value> <property>aero/{datapoint}_{run}_{position}</property>\n')
         last_position = position
 
-    if last_position < 0:
+    print('last_position:', last_position)
+    if float(last_position) < 0:
         output_file.write('      <value>0</value> <value>0</value>\n')
     output_file.write('    </interpolate1d>\n')
     output_file.write('  </function>\n\n')
-
-def initialize_output_data_structure():
-    """Initialize and return the output data structure based on your specific needs."""
-    output_data = {
-        'CL': {'elevator' : {'3' : {} } }, 'CDtot': {}, 'CS': {}, 'CMx': {}, 'CMy': {}, 'CMz': {}
-        # Initialize further as needed
-    }
-    return output_data
 
 def load_database():
     """Load or generate the database from parsed VSP data."""
@@ -130,11 +144,162 @@ def load_database():
         db = json.load(jf)
     return db
 
+def write_axis(output_file, group, axis, properties):
+    """Writes a single axis definition using a formatted string."""
+    # Define a template for the axis XML structure
+    axis_template = """
+  <axis name="{axis_name}">
+    <function name="aero/{group}/{axis}">
+      <product>
+        <property>aero/qbar-psf</property>
+        <property>metrics/Sw-sqft</property>
+        {extra_properties}
+        <sum>
+{properties}
+        </sum>
+      </product>
+    </function>
+  </axis>
+"""
+
+    # Conditional string inclusion based on specific criteria
+    extra_properties = ''
+    if group == 'moments':
+        if axis == 'pitch' or axis == 'roll':
+            extra_properties = '<property>metrics/bw-ft</property>\n'
+        elif axis == 'yaw':
+            extra_properties = '<property>metrics/cbarw-ft</property>\n'
+
+    # Compose the property elements from the provided properties
+    property_elements = '\n'.join(f'          <property>{prop}</property>' for prop in properties)
+
+    # Fill the template with actual data
+    formatted_axis = axis_template.format(
+        axis_name=axis.upper(),
+        group=group,
+        axis=axis,
+        extra_properties=extra_properties,
+        properties=property_elements
+    )
+
+    # Write the formatted string to file
+    output_file.write(formatted_axis)
+
+def assign_aerodynamics_to_axis(output_file, output_data):
+    """Generates aerodynamic properties based on the specified structure."""
+    
+    for group, axes in output_data.items():
+        for axis, properties in axes.items():
+            write_axis(output_file, group, axis, properties)
+
+def get_data(line):
+    """Cleans up and splits the line of data."""
+    while '  ' in line:
+        line = line.replace('  ', ' ')
+    return line.split(' ')
+
+def process_stability_derivatives(stab_file, output_file, params):
+    """Processes stability derivatives from input file and writes XML formatted output."""
+    data = []
+    stability_vars = ['mach', 'alpha', 'beta', 'cmlp', 'cmlr', 'cmma', 'cmmb', 'cmmq', 'cmnb', 'cmnr', 'cmnp', 'cfyp', 'cfyr']
+    current_data = {var: -9999 for var in stability_vars}
+    
+    line = stab_file.readline()
+    while line:
+        line_arr = get_data(line)
+
+        # Parse the line based on its prefix
+        if line.startswith("Mach_"):
+            current_data['mach'] = float(line[21:33])
+        elif line.startswith("AoA_"):
+            current_data['alpha'] = float(line[21:33])
+        elif line.startswith("Beta_"):
+            current_data['beta'] = float(line[21:33])
+        elif line.startswith("CMx"):
+            current_data['cmlp'] = float(line_arr[4])
+            current_data['cmlr'] = float(line_arr[6])
+        elif line.startswith("CMy"):
+            current_data['cmma'] = float(line_arr[2])
+            current_data['cmmq'] = float(line_arr[5])
+        elif line.startswith("CMz"):
+            current_data['cmnb'] = float(line_arr[3])
+            current_data['cmnr'] = float(line_arr[4])
+            current_data['cmnp'] = float(line_arr[6])
+        elif line.startswith("CS"):
+            current_data['cfyp'] = float(line_arr[4])
+            current_data['cfyr'] = float(line_arr[6])
+
+        elif line.startswith("# Result"):
+            data.append(current_data.copy())
+            current_data = {var: -9999 for var in stability_vars}
+
+        line = stab_file.readline()
+
+    stab_file.close()
+
+    # Generate XML output
+    generate_stability_xml_output(data, output_file, params)
+
+def generate_stability_xml_output(data, output_file, params):
+    """Generates XML output based on processed data."""
+    # Extract unique mach, alpha, and beta values
+    mach_arr = sorted(set(d['mach'] for d in data))
+    alpha_arr = sorted(set(d['alpha'] for d in data))
+    beta_arr = sorted(set(d['beta'] for d in data))
+
+    output_coeffs = {
+        'cmlp': ['Roll damping derivative', 'aero/pb'],
+        'cmlr': ['Roll moment due to yaw rate', 'aero/rb'],
+        'cmmq': ['Pitch damping derivative', 'aero/qb'],
+        'cmma': ['Pitch moment alpha dot', 'aero/alphadot-rad_sec'],
+        'cmnp': ['Yaw moment due to roll rate', 'aero/pb'],
+        'cmnr': ['Yaw damping derivative', 'aero/rb'],
+        'cfyp': ['Side force due to roll rate', 'aero/pb'],
+        'cfyr': ['Side force due to yaw rate', 'aero/rb'],
+    }
+
+    for coeff in output_coeffs:
+        output_file.write(f'  <function name="aero/s/{coeff}">\n')
+        output_file.write(f'    <description>{output_coeffs[coeff][0]}</description>\n')
+        output_file.write('    <product>\n')
+        output_file.write(f'      <property>{output_coeffs[coeff][1]}</property>\n')
+        output_file.write('      <table>\n')
+        output_file.write('        <independentVar lookup="row">velocities/mach</independentVar>\n')
+        output_file.write('        <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
+        output_file.write('        <independentVar lookup="table">aero/beta-deg</independentVar>\n')
+
+        # Output each beta point as a separate table data section
+        for beta in beta_arr:
+            output_file.write(f'        <tableData breakPoint="{beta:.1f}">\n')
+            output_file.write('                ')
+            # Write AoA column headers
+            for alpha in alpha_arr:
+                output_file.write(f'{alpha:10.1f}   ')
+            output_file.write('\n')
+            # Write each Mach row under the AoA headers
+            for mach in mach_arr:
+                output_file.write(f'           {mach:.3f}   ')
+                for alpha in alpha_arr:
+                    # Find the corresponding data entry
+                    values = [d for d in data if d['mach'] == mach and d['beta'] == beta]
+                    if values:
+                        value = next((v[coeff] for v in values if v['alpha'] == alpha), 0)
+                        output_file.write(f'{value:10.4f}   ')
+                    else:
+                        output_file.write('    0.0000   ')
+                output_file.write('\n')
+            output_file.write('        </tableData>\n')
+
+        output_file.write('      </table>\n')
+        output_file.write('    </product>\n')
+        output_file.write('  </function>\n\n')
+
+
 
 
 # Read parameters from a configuration file
-with open('./runparams.json', 'r') as param_file:
-    params = json.load(param_file)
+with open('./runparams.jsonc', 'r') as param_file:
+    params = commentjson.load(param_file)
 
 # Prepare output files
 output_json_path = './output/outputData.json'
@@ -163,18 +328,23 @@ for arg in sys.argv:
 input_txt = {}
 for file_name, config_paths in params['files'].items():
     config_texts = {}
-    
-    # Iterate through the configurations associated with the file
     for config_path in config_paths:
-        config_base_name = os.path.basename(config_path)
+        print(f"Processing data from {config_path} filename {file_name}")
+
+        # Move up one directory level to get the deflection angle directory
+        deflection_angle_dir = os.path.basename(os.path.dirname(config_path))
         history_file_path = os.path.join(config_path, params['vspname'] + '.history')
+        
         with open(history_file_path, 'r') as file:
             print(f"Processing data from {history_file_path}")
-            config_texts[config_base_name] = file.readlines()
+            config_texts[deflection_angle_dir] = file.readlines()
 
     input_txt[file_name] = config_texts
 
-print(f"input_txt: {input_txt}")
+
+    input_txt[file_name] = config_texts
+
+# print(f"input_txt: {input_txt}")
 
 # Database for storing parsed data
 db = {'base': {0: []}}
@@ -192,25 +362,24 @@ for i, line in enumerate(input_txt_base):
 
 # Process data for each configuration
 for s, files in input_txt.items():
+    print(f"Processing data for {s}")
     db[s] = {}
     for p, lines in files.items():
-        # TODO: make not hardcoded
-        db[s]["3"] = []
+        db[s][p] = []
         for i, line in enumerate(lines):
             if line.startswith('Solver Case:'):
                 data_line = lines[i + 2 + wake_iterations]
                 parsed_data = parse_data_line(data_line, wake_iterations)
                 dataset = dict(zip(data_order, parsed_data))
-                db[s]["3"].append(dataset)
+                db[s][p].append(dataset)
 
-# Save parsed data to a JSON file
+# Save database to file so we can review if needed
 with open('./output/dataset.json', 'w+') as jf:
     json.dump(db, jf, sort_keys=True, indent=4)
 
 # The following part of the script generates JSBSim configuration files.
 # It constructs XML entries for each datapoint across various runs and positions.
 # The script handles formatting, adjustment of small numbers, and XML structuring.
-
 
 desc = '''
 <!-- 
@@ -251,19 +420,21 @@ Based on the work of Richard Harrison
     </product>
   </function>
 
-</aerodynamics>
 '''
 output_file.write(desc)
 
-# Initialize the output data structure (if not done elsewhere in your code)
-output_data = initialize_output_data_structure()
+output_data = params["data_to_axis_map"]
 
-# Load your database of parsed VSP data (if not loaded elsewhere)
+# load sorted database
 db = load_database()
 
 # Process the data points
-process_data_points(output_file, output_data, db)
+process_data_in_database(output_file, output_data, db)
 
+
+#################################################################
+# Ground effect
+#################################################################
 
 # for d in outputData.keys():
 #     ge = outputData[d]['ground_effect']
@@ -314,281 +485,22 @@ process_data_points(output_file, output_data, db)
 #     output_file.write('    </table>\n')
 #     output_file.write('  </function>\n\n')
 
-# Stability - pretty much copypaste of pinto's stab_format.py
-print('##### stability')
-data = []
+#################################################################
 
-mach = -9999
-alpha = -9999
-beta = -9999
-cmlp = -9999
-cmlr = -9999
-cmma = -9999
-cmmb = -9999
-cmmq = -9999
-cmnb = -9999
-cmnr = -9999
-cmnp = -9999
-cfyp = -9999
-cfyr = -9999
+#################################################################
+# Stability Derivatives
+#################################################################
 
-line = stab_file.readline()
+process_stability_derivatives(stab_file, output_file, params)
 
-def getdata(line):
-    while '  ' in line:
-        line = line.replace('  ', ' ')
-    return line.split(' ')
+#################################################################
 
-while line != "":
-    # print(line)
-    line_arr = getdata(line)
-    # gather main info
-    if line[0:5] == "Mach_":
-        mach = float(line[21:33])
-    elif line[0:4] == "AoA_":
-        alpha = float(line[21:33])
-    elif line[0:5] == "Beta_":
-        beta = float(line[21:33])
-
-    # gather coefficient info
-    elif line[0:3] == "CMx":
-        cmlp = float(line_arr[4])  # wrt p per rad colum
-        cmlr = float(line_arr[6])  # wrt r per rad column
-    elif line[0:3] == "CMy":
-        cmma = float(line_arr[2])
-        cmmb = float(line_arr[3])
-        cmmq = float(line_arr[5])
-    elif line[0:3] == "CMz":
-        cmnb = float(line_arr[3])
-        cmnr = float(line_arr[4])
-        cmnp = float(line_arr[6])
-    elif line[0:2] == "CS":
-        cfyp = float(line_arr[4])
-        cfyr = float(line_arr[6])
-
-    # output data
-
-    elif line[0:8] == "# Result":
-        data.append({'mach' : mach,
-                     'alpha' : alpha,
-                     'beta' : beta,
-                     'cmlp' : cmlp,
-                     'cmlr' : cmlr,
-                     'cmma' : cmma,
-                     'cmmb' : cmmb,
-                     'cmmq' : cmmq,
-                     'cmnb' : cmnb,
-                     'cmnr' : cmnr,
-                     'cmnp' : cmnp,
-                     'cfyp' : cfyp,
-                     'cfyr' : cfyr,
-                     })
-
-        # reinit values
-        mach = -9999
-        alpha = -9999
-        beta = -9999
-        cmlp = -9999
-        cmlr = -9999
-        cmma = -9999
-        cmmb = -9999
-        cmmq = -9999
-        cmnb = -9999
-        cmnr = -9999
-        cmnp = -9999
-        cfyp = -9999
-        cfyr = -9999
-
-    line = stab_file.readline()
-
-stab_file.close()
-
-# build an array of mach, alpha, and beta values
-mach_arr = []
-alpha_arr = []
-beta_arr = []
-
-false = 0
-true = 1
-
-for i in data:
-    match = false
-
-    for j in mach_arr:
-        if j == i['mach']:
-            match = true
-    if not match:
-        mach_arr.append(i['mach'])
-    match = false
-
-    for j in alpha_arr:
-        if j == i['alpha']:
-            match = true
-    if not match:
-        alpha_arr.append(i['alpha'])
-    match = false
-
-    for j in beta_arr:
-        if j == i['beta']:
-            match = true
-            break
-    if not match:
-        beta_arr.append(i['beta'])
-    match = false
-
-output_coeffs = {
-    # not included are: cmmb, cmnb
-    'cmlp': ['Roll damping derivative', 'aero/pb'],
-    'cmlr': ['Roll moment due to yaw rate', 'aero/rb'],
-    'cmmq': ['Pitch damping derivative', 'aero/qb'],
-    'cmma': ['Pitch moment alpha dot', 'aero/alphadot-rad_sec'],
-    'cmnp': ['Yaw moment due to roll rate', 'aero/pb'],
-    'cmnr': ['Yaw damping derivative', 'aero/rb'],
-    'cfyp': ['Side force due to roll rate', 'aero/pb'],
-    'cfyr': ['Side force due to yaw rate', 'aero/rb'],
-}
-
-# output_file.write('<?xml version="1.0"?>\n\n')
-
-for coeff in output_coeffs:
-    debug_print(coeff)
-    output_file.write('  <function name="aero/s/' + coeff + '">\n')
-    output_file.write('    <description>' + output_coeffs[coeff][0] + '</description>\n')
-    output_file.write('    <product>\n')
-    output_file.write('      <property>' + output_coeffs[coeff][1] + '</property>\n')
-    output_file.write('      <table>\n')
-    output_file.write('        <independentVar lookup="row">velocities/mach</independentVar>\n')
-    output_file.write('        <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
-    output_file.write('        <independentVar lookup="table">aero/beta-deg</independentVar>\n')
-    if coeff not in params['alpha_only'] or true:
-        output_file.write('        <tableData breakPoint="' + str(data[0]['beta']) + '">\n')
-        output_file.write('                   ')
-        for a in alpha_arr:
-            a = str(a)
-            if len(a.split('.')[0]) < 3:
-                a = ' ' * (3 - len(a.split('.')[0])) + a
-            output_file.write(str(a) + '       ')
-        output_file.write('\n')
-        output_file.write('           ')
-        mp = str(data[0]['mach'])
-        if not mp.startswith('-'):
-            mp = ' ' + mp
-        if len(mp.split('.')[1]) < 4:
-            mp += ' ' * (4 - len(mp.split('.')[1]))
-        output_file.write(mp)
-
-    b_beta = data[0]['beta']
-    b_mach = data[0]['mach']
-
-    for i in data:
-        if coeff in params['alpha_only'] and i['beta'] != 0:
-            continue
-        
-        if b_beta != i['beta']:
-            b_beta = i['beta']
-            if coeff not in params['alpha_only']:
-                output_file.write('\n        </tableData>\n')
-                output_file.write('        <tableData breakPoint="' +
-                         str(i['beta']) + '">\n')
-                output_file.write('                   ')
-                for a in alpha_arr:
-                    a = str(a)
-                    if len(a.split('.')[0]) < 3:
-                        a = ' ' * (3 - len(a.split('.')[0])) + a
-                    output_file.write(str(a) + '       ')
-
-        if b_mach != i['mach']:
-            b_mach = i['mach']
-            output_file.write('\n           ')
-            mp = str(i['mach'])
-            if not mp.startswith('-'):
-                mp = ' ' + mp
-            if len(mp.split('.')[1]) < 4:
-                mp += ' ' * (4 - len(mp.split('.')[1]))
-            output_file.write(mp)
-
-        cf = str(small_number_check(i[coeff]))
-        
-        if not cf.startswith('-'):
-            cf = ' ' + cf
-        if len(cf.split('.')[1]) < 7:
-            cf += '0' * (7 - len(cf.split('.')[1]))
-        output_file.write('  ' + cf)
-
-    output_file.write('\n        </tableData>\n')
-    output_file.write('      </table>\n')
-    output_file.write('    </product>\n')
-    output_file.write('  </function>\n\n')
-
-def write_axis(output_file, group, axis, properties):
-    """Writes a single axis definition using a formatted string."""
-    # Define a template for the axis XML structure
-    axis_template = """
-  <axis name="{axis_name}">
-    <function name="aero/{group}/{axis}">
-      <product>
-        <property>aero/qbar-psf</property>
-        <property>metrics/Sw-sqft</property>
-        {extra_properties}
-        <sum>
-{properties}
-        </sum>
-      </product>
-    </function>
-  </axis>
-"""
-
-    # Conditional string inclusion based on specific criteria
-    extra_properties = ''
-    if group == 'moments':
-        if axis == 'pitch' or axis == 'roll':
-            extra_properties = '<property>metrics/bw-ft</property>\n'
-        elif axis == 'yaw':
-            extra_properties = '<property>metrics/cbarw-ft</property>\n'
-
-    # Compose the property elements from the provided properties
-    property_elements = '\n'.join(f'          <property>{prop}</property>' for prop in properties)
-
-    # Fill the template with actual data
-    formatted_axis = axis_template.format(
-        axis_name=axis.upper(),
-        group=group,
-        axis=axis,
-        extra_properties=extra_properties,
-        properties=property_elements
-    )
-
-    # Write the formatted string to file
-    output_file.write(formatted_axis)
-
-def assign_aerodynamics_to_axis(output_file, output_data):
-    """Generates aerodynamic properties based on the specified structure."""
-    
-    for group, axes in output_data.items():
-        for axis, properties in axes.items():
-            write_axis(output_file, group, axis, properties)
-
-outputitems = {'forces': {'lift': 'CL', 'drag': 'CDtot', 'side': 'CS'},
-               'moments': {'pitch': 'CMy', 'roll': 'CMx', 'yaw': 'CMz'}}
-
-output_data = {
-    'moments': {
-        'yaw': ['aero/s/cmnp', 'aero/s/cmnr'],
-        'pitch': ['aero/s/cmmq', 'aero/s/cmma'],
-        'roll': ['aero/s/cmlp', 'aero/s/cmlr']
-    },
-    'forces': {
-        'lift': ['aero/s/cl'],
-        'drag': ['aero/s/cd'],
-        'side': ['aero/s/cfyp', 'aero/s/cfyr']
-    }
-}
-
+# Take all the defined aero functions in the xml file and assign them to an axis
+output_data = params['run_data_to_axis']
 assign_aerodynamics_to_axis(output_file, output_data)
 
-# with open(params['axis_file'], 'r') as axis:
-#     for l in axis.readlines():
-#         output_file.write(l)
+
+output_file.write('</aerodynamics>\n')
 output_file.close()
 output_data_file.close()
 print('process time:', time.process_time())

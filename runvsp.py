@@ -1,4 +1,5 @@
 #!./vsp-venv/bin/python3
+import commentjson
 import json
 import subprocess
 import sys
@@ -279,8 +280,8 @@ def update_csv_if_needed(case: str, params: dict, run: str) -> bool:
 
 
 # Read parameters from a JSON file.
-with open('./runparams.json', 'r') as p:
-    params = json.loads(p.read())
+with open('./runparams.jsonc', 'r') as p:
+    params = commentjson.loads(p.read())
 
 # Set up command line argument parsing.
 parser = argparse.ArgumentParser(description="Script to run VSPAERO with various options.")

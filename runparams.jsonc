@@ -1,0 +1,81 @@
+{
+    // these files are of runs that contain different surface deflections
+    //      - the folder name containing the VSP data should be the value of the surface deflection in degrees
+    "files": {
+        "elevator": [
+            "./output/elevator/3/"
+        ]
+    },
+    "base_file": "./output/base/",
+    "est_file": "./output/est/",
+    "output_file": "./output/Cessna-210.xml",
+    "stab_file": "./output/stab/",
+    "vsp_filepath": "example/Cessna-210-NASA/",
+    "vsp3_file": "Cessna-210.vsp3",
+    "vspname": "Cessna-210_DegenGeom",
+    "manual_set": {},
+    "surf_names": {
+        "left-flaperon": "flaperon",
+        "right-flaperon": "flaperon"
+    },
+    "CLmax": {
+        "base": "0.9692",
+        "flaps": "1.1131"
+    },
+    "mach": "0.2,0.3",
+    "aoa_low": "0",
+    "beta_low": "0",
+    "alpha_only": [],
+    // 
+    "run_data_to_axis": {
+        "moments": {
+            "yaw": ["aero/s/cmnp", "aero/s/cmnr", "aero/CMz_base"],
+            "pitch": ["aero/s/cmmq", "aero/s/cmma", "aero/CMy_base", "aero/CMy_elevator"],
+            "roll": ["aero/s/cmlp", "aero/s/cmlr", "aero/CMx_base"]
+        },
+        "forces": {
+            "lift": ["CL_base"],
+            "drag": ["CDtot_base"],
+            "side": ["aero/s/cfyp", "aero/s/cfyr", "aero/CS_base"]
+        }
+    },
+    // specify which run data affects which axis. 
+    // NOTE: the base case is named "base" and mapped to "0". all other runs will have the base 
+    //       case coefficients subtracted from them, so that a certain surface deflection will 
+    //       only add the effect of that surface deflection
+    "data_to_axis_map": {
+        "CL": {
+            "base": {
+                "0": {}
+            }
+        },
+        "CDtot": {
+            "base": {
+                "0": {}
+            }
+        },
+        "CS": {
+            "base": {
+                "0": {}
+            }
+        },
+        "CMx": {
+            "base": {
+                "0": {}
+            }
+        },
+        "CMy": {
+            "base": {
+                "0": {}
+            },
+            "elevator": {
+                "3": {}
+            }
+        },
+        "CMz": {
+            "base": {
+                "0": {}
+            }
+        }
+    }
+}
