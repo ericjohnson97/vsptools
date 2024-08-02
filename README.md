@@ -1,4 +1,9 @@
 ### Python toolset to create JSBSim flight dynamics models with VSPAERO
+
+Special thanks to Jüttner Domokos for publishing his work. This repository is a fork of his original work, which can be found [here](https://github.com/Rudolf339/vsptools). I have decided to build on his work and add more features that are relevant to me. I have a desire to be able to take an OpenVSP model and generate aerodynamics data for JSBSim. I have special interest in generating my JSBsim models to be compatible with both ardupilot and PX4. 
+
+This project is a work in progress and does not work yet, but I am looking forward to working on this more in the coming months.
+
 ## Author: Jüttner Domokos
 ## Licence: GPLv2
 
