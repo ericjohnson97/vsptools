@@ -1,0 +1,10 @@
+{
+    "name": "My Dev Container",
+    "dockerFile": "Dockerfile",  
+    "context": "..",                       
+    "settings": {
+      "terminal.integrated.shell.linux": "/bin/bash"
+    },
+    "remoteUser": "root"
+  }
+  
