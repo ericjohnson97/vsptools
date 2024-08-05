@@ -4,10 +4,10 @@ ENV TZ=Europe/Minsk
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN apt-get install -y wget cmake libxml2-dev g++ libjpeg-dev libglm-dev libeigen3-dev libcminpack-dev libglew-dev swig
 WORKDIR /
-RUN wget -O - https://github.com/OpenVSP/OpenVSP/tarball/OpenVSP_3.25.0 | tar xz
-RUN mkdir -p /OpenVSP-OpenVSP-9b64795/SuperProject/build
+RUN wget -O - https://github.com/OpenVSP/OpenVSP/tarball/OpenVSP_3.38.0 | tar xz
+RUN mkdir -p /OpenVSP-OpenVSP-e5d6748/SuperProject/build
 RUN mkdir -p /usr/local/openvsp
-WORKDIR /OpenVSP-OpenVSP-4498334/SuperProject/build
+WORKDIR /OpenVSP-OpenVSP-e5d6748/SuperProject/build
 RUN cmake .. \
         -DCMAKE_INSTALL_PREFIX=/usr/local/openvsp \
         -DVSP_NO_GRAPHICS=true \
@@ -28,25 +28,29 @@ RUN cmake .. \
 RUN make
 
 RUN mkdir -p /usr/local/openvsp 
-RUN cp /OpenVSP-OpenVSP-4498334/SuperProject/build/OpenVSP-prefix/src/OpenVSP-build/OpenVSP-3.25.0-Linux.zip /usr/local/openvsp
+RUN cp /OpenVSP-OpenVSP-e5d6748/SuperProject/build/OpenVSP-prefix/src/OpenVSP-build/OpenVSP-3.38.0-Linux.zip /usr/local/openvsp
 
 RUN mkdir -p /opt/conda/lib/python3.8/site-packages/openvsp
 
 RUN apt install unzip -y
 
 WORKDIR /usr/local/openvsp
-RUN unzip OpenVSP-3.25.0-Linux.zip
-WORKDIR /usr/local/openvsp/OpenVSP-3.25.0-Linux/python/utilities
+RUN unzip OpenVSP-3.38.0-Linux.zip
+WORKDIR /usr/local/openvsp/OpenVSP-3.38.0-Linux/python/utilities
 RUN pip install .
-WORKDIR /usr/local/openvsp/OpenVSP-3.25.0-Linux/python/degen_geom
+WORKDIR /usr/local/openvsp/OpenVSP-3.38.0-Linux/python/degen_geom
 RUN pip install .
-WORKDIR /usr/local/openvsp/OpenVSP-3.25.0-Linux/python/openvsp
+WORKDIR /usr/local/openvsp/OpenVSP-3.38.0-Linux/python/openvsp_config
 RUN pip install .
-WORKDIR /usr/local/openvsp/OpenVSP-3.25.0-Linux/python/AvlPy
+WORKDIR /usr/local/openvsp/OpenVSP-3.38.0-Linux/python/openvsp
+RUN pip install .
+WORKDIR /usr/local/openvsp/OpenVSP-3.38.0-Linux/python/AvlPy
 RUN pip install .
 
 WORKDIR /vsptools
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+
+ENV PATH="/usr/local/openvsp:${PATH}"
 
 CMD ["/bin/bash"]

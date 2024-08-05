@@ -36,12 +36,13 @@ def vprint(text):
         print(text)
 
 
-def generate(loc, vspfile, name, manual=False, pos=0):
+def generate(loc, src_file_path, vspfile , name, manual=False, pos=0):
     """
     Generates VSPAERO input files and configurations.
 
     Args:
         loc (str): Directory location to store output.
+        src_file_path (str): Source file path.
         vspfile (str): Path to the VSP file.
         name (str): Geometry name.
         manual (bool): Whether manual adjustments are needed.
@@ -73,7 +74,8 @@ def generate(loc, vspfile, name, manual=False, pos=0):
                 pass
 
 
-    vsp.ReadVSPFile(vspfile)
+    print(f"reading vspfile {src_file_path}/{vspfile}")
+    vsp.ReadVSPFile(f"{src_file_path}/{vspfile}")
     vsp.SetVSP3FileName(loc + vspfile)
 
     if manual:
@@ -172,7 +174,7 @@ def write_vsp_configuration(case_file_path: str, vsp_filename: str, params: dict
             file.write(f'{p} = {value}\n')
         for p, value in postprops.items():
             file.write(f'{p} = {value}\n')
-    generate(case_file_path, params['vsp3_file'], case)
+    generate(case_file_path, params['vsp_filepath'] , params['vsp3_file'], case)
 
 def run_solver(case: str, case_file_path: str, args, progress: dict):
     """Run solver for the VSP model based on the case."""
@@ -180,9 +182,15 @@ def run_solver(case: str, case_file_path: str, args, progress: dict):
     if not args.dryrun or case == 'est':
         if os.name == 'posix':
             if case == 'est':
-                subprocess.run(['bash', './run.sh', case_file_path, args.jobs, '0'])
+                cmd = ['vspaero', '-omp', args.jobs, params['vspname']]
+                print(f"Running command: {cmd}, cwd: {case_file_path}")
+                subprocess.run(cmd, cwd=case_file_path, check=True)
+                
             else:
-                 subprocess.run(['bash', './runstab.sh', params[case + '_file'], args.jobs, '0'])
+                cmd = ['vspaero', '-omp', args.jobs, '-stab', params['vspname']]
+                print(cmd)
+                subprocess.run(cmd, cwd=case_file_path, check=True)
+                
 
         elif os.name == 'nt':
             try:
