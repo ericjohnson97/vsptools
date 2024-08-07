@@ -1,18 +1,20 @@
 {
-    // these files are of runs that contain different surface deflections
-    //      - the folder name containing the VSP data should be the value of the surface deflection in degrees
-    "files": {
-        "elevator": [
-            "./output/elevator/3/"
-        ]
+    // this contains a list of the control groups in the vsp3 model. each control group accepts 
+    // an array of deflections in degrees
+    "deflection_cases": {
+        "elevator": [1, 4],
+        "aileron": [1, 4],
+        "rudder": [1, 4]
     },
     "base_file": "./output/base/",
     "est_file": "./output/est/",
     "output_file": "./output/Cessna-210.xml",
     "stab_file": "./output/stab/",
-    "vsp_filepath": "example/Cessna-210-NASA/",
+    "vsp_filepath": "example/Cessna-210-NASA",
+    
+    // TODO remove this key value pair
     "vsp3_file": "Cessna-210.vsp3",
-    "vspname": "Cessna-210_DegenGeom",
+    "vspname": "Cessna-210",
     "manual_set": {},
     "surf_names": {
         "left-flaperon": "flaperon",
