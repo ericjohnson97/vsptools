@@ -6,8 +6,10 @@
         "aileron": [1, 4],
         "rudder": [1, 4]
     },
+    // theses probably don't need to be configs refactor in future
     "base_file": "./output/base/",
     "est_file": "./output/est/",
+    ////////////////////////////////////////////
     "output_file": "./output/Cessna-210.xml",
     "stab_file": "./output/stab/",
     "vsp_filepath": "example/Cessna-210-NASA",
@@ -24,11 +26,9 @@
         "base": "0.9692",
         "flaps": "1.1131"
     },
+    "alpha": "0,5,10",
+    "beta": "0,5,10",
     "mach": "0.2,0.3",
-    "aoa_low": "0",
-    "beta_low": "0",
-    "alpha_only": [],
-    // 
     "run_data_to_axis": {
         "moments": {
             "yaw": ["aero/s/cmnp", "aero/s/cmnr", "aero/CMz_base"],
@@ -64,6 +64,10 @@
         "CMx": {
             "base": {
                 "0": {}
+            },
+            "aileron": {
+                "1": {},
+                "4": {}
             }
         },
         "CMy": {
@@ -71,12 +75,17 @@
                 "0": {}
             },
             "elevator": {
-                "3": {}
+                "1": {},
+                "4": {}
             }
         },
         "CMz": {
             "base": {
                 "0": {}
+            },
+            "rudder": {
+                "1": {},
+                "4": {}
             }
         }
     }

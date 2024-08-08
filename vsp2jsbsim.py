@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import commentjson
 import json
 import os
@@ -44,6 +45,7 @@ def append_beta_data(output_file, datapoint, run, pos, output_data, db):
         
         # Gather all AoA values to create the header row
         mach_aoa_data = output_data[datapoint][run][pos][beta]
+        print(f"mach_aoa_data: {mach_aoa_data}")
         aoa_set = set()
         for mach in mach_aoa_data:
             aoa_set.update(mach_aoa_data[mach].keys())  # Assuming keys are strings
@@ -69,51 +71,53 @@ def append_beta_data(output_file, datapoint, run, pos, output_data, db):
 
 
 
-def process_data_in_database(output_file, output_data, db):
+def process_data_in_database(output_file, output_data, db, params):
     """Processes each data point to generate XML structures."""
     for datapoint in output_data:
         print('#####', datapoint)
         output_file.write(f'  <!-- {datapoint.upper()} -->\n')
-        for run in output_data[datapoint]:
-            output_file.write(f'  <!-- {run} -->\n')
-            for pos in output_data[datapoint][run]:
+        for control_group in output_data[datapoint]:
+            output_file.write(f'  <!-- {control_group} -->\n')
+            for pos in output_data[datapoint][control_group]:
                 # betas = sorted(set(float(d['beta']) for d in db[run][pos]))
 
                 # Generate or update entries in the output data structure
-                for d in db[run][pos]:
+                print(f"Processing data for {datapoint} {control_group} {pos}")
+                for d in db[control_group][pos]:
                     beta = format_value(float(d['beta']), 1)
                     mach = format_value(float(d['Mach']), 3)
                     aoa = format_value(float(d['AoA']), 3)
                     value = small_number_check(float(f"{d[datapoint]:.5f}"))
 
                     # TODO: put this back
-                    # if run != 'base':
-                    #     base_value = small_number_check(float(output_data[datapoint]['base'][0][beta][mach][aoa]))
-                    #     value -= base_value
-                    print(type(output_data[datapoint][run]))
-                    output_data[datapoint][run][pos].setdefault(beta, {}).setdefault(mach, {})[aoa] = format_value(value)
+                    if control_group != 'base':
+                        # base_value = small_number_check(float(output_data[datapoint]['base'][0][beta][mach][aoa]))
+                        base_value = small_number_check(float(output_data[datapoint]['base']['0'][beta][mach][aoa]))
+                        value -= base_value
+                    print(type(output_data[datapoint][control_group]))
+                    output_data[datapoint][control_group][pos].setdefault(beta, {}).setdefault(mach, {})[aoa] = format_value(value)
 
                 # Write to JSON after updating data
                 with open('./outputData.json', 'w+') as jf:
                     json.dump(output_data, jf, sort_keys=True, indent=4)
 
                 # Handle XML generation for this data point
-                if run == 'ground_effect':
+                if control_group == 'ground_effect':
                     continue
 
-                func_name = f'aero/{datapoint}_{run}_{pos}' if run != 'base' else f'aero/{datapoint}_{run}'
+                func_name = f'aero/{datapoint}_{control_group}_{pos}' if control_group != 'base' else f'aero/{datapoint}_{control_group}'
                 output_file.write(f'  <function name="{func_name}">\n')
                 output_file.write('    <table>\n')
                 output_file.write('      <independentVar lookup="row">velocities/mach</independentVar>\n')
                 output_file.write('      <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
                 output_file.write('      <independentVar lookup="table">aero/beta-deg</independentVar>\n')
-                append_beta_data(output_file, datapoint, run, pos, output_data, db)
+                append_beta_data(output_file, datapoint, control_group, pos, output_data, db)
                 output_file.write('    </table>\n')
                 output_file.write('  </function>\n\n')
 
                 # Handling interpolation for non-base and non-ground effect data
-                if run not in ['base', 'ground_effect']:
-                    interpolate_data_points(output_file, datapoint, run, output_data)
+                if control_group not in ['base', 'ground_effect']:
+                    interpolate_data_points(output_file, datapoint, control_group, output_data)
 
 def interpolate_data_points(output_file, datapoint, run, output_data):
     """Creates interpolation functions for aerodynamic data points."""
@@ -124,9 +128,11 @@ def interpolate_data_points(output_file, datapoint, run, output_data):
     
     # Sorting and interpolating data based on position
     positions = sorted(output_data[datapoint][run])
-    
+    print('positions:', positions)
     last_position = None
     for position in positions:
+        position = float(position)
+        print(f"position: {position}")
         if last_position is None or last_position < 0 and position > 0:
             output_file.write('      <value>0</value> <value>0</value>\n')
         output_file.write(f'      <value>{position}</value> <property>aero/{datapoint}_{run}_{position}</property>\n')
@@ -246,6 +252,9 @@ def generate_stability_xml_output(data, output_file, params):
     mach_arr = sorted(set(d['mach'] for d in data))
     alpha_arr = sorted(set(d['alpha'] for d in data))
     beta_arr = sorted(set(d['beta'] for d in data))
+    print(f"mach_arr: {mach_arr}")
+    print(f"alpha_arr: {alpha_arr}")
+    print(f"beta_arr: {beta_arr}")
 
     output_coeffs = {
         'cmlp': ['Roll damping derivative', 'aero/pb'],
@@ -269,25 +278,52 @@ def generate_stability_xml_output(data, output_file, params):
         output_file.write('        <independentVar lookup="table">aero/beta-deg</independentVar>\n')
 
         # Output each beta point as a separate table data section
+        # Loop through each beta value
         for beta in beta_arr:
             output_file.write(f'        <tableData breakPoint="{beta:.1f}">\n')
             output_file.write('                ')
-            # Write AoA column headers
+            
+            # Write AoA (Angle of Attack) column headers
             for alpha in alpha_arr:
                 output_file.write(f'{alpha:10.1f}   ')
             output_file.write('\n')
+            
             # Write each Mach row under the AoA headers
             for mach in mach_arr:
                 output_file.write(f'           {mach:.3f}   ')
+                
+                # Loop through each AoA value
                 for alpha in alpha_arr:
-                    # Find the corresponding data entry
-                    values = [d for d in data if d['mach'] == mach and d['beta'] == beta]
-                    if values:
-                        value = next((v[coeff] for v in values if v['alpha'] == alpha), 0)
+                    # Filter the data to find entries that match the current Mach and beta values
+                    filtered_data = []
+                    for entry in data:  # Iterate over all data entries
+                        # Check if 'mach' and 'beta' values match the current Mach and beta
+                        if entry['mach'] == mach and entry['beta'] == beta:
+                            filtered_data.append(entry)  # Add matching entry to filtered_data
+                        else:
+                            print(f"entry['mach'] {entry['mach']} != mach {mach} or entry['beta'] {entry['beta']} != beta {beta}")
+                    
+                    # Find the corresponding data entry for the current alpha
+                    # Check if there are any entries in the filtered_data
+                    if filtered_data:
+                        # Find the corresponding value for the current alpha
+                        # This generator expression searches for the first entry in filtered_data with a matching alpha value
+                        value = next(
+                            (
+                                v[coeff]  # Extract the value for the given coefficient
+                                for v in filtered_data  # Iterate over each entry in the filtered_data
+                                if v['alpha'] == alpha  # Check if the alpha value matches the current alpha
+                            ),
+                            0  # Default value if no match is found
+                        )
+                        # Write the value to the output file, formatted to 4 decimal places
                         output_file.write(f'{value:10.4f}   ')
                     else:
+                        # If no matching entries are found, write a default value of 0.0000
                         output_file.write('    0.0000   ')
+
                 output_file.write('\n')
+            
             output_file.write('        </tableData>\n')
 
         output_file.write('      </table>\n')
@@ -295,212 +331,208 @@ def generate_stability_xml_output(data, output_file, params):
         output_file.write('  </function>\n\n')
 
 
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(description="Process some integers.")
+    
+    # Adding optional arguments
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    parser.add_argument('-w', '--wake_iterations', type=int, default=3, help='Number of wake iterations')
+
+    args = parser.parse_args()
+
+    DEBUG = args.debug
+    wake_iterations = args.wake_iterations
+
+    # Read parameters from a configuration file
+    with open('./runparams.jsonc', 'r') as param_file:
+        params = commentjson.load(param_file)
+
+    # Prepare output files
+    output_json_path = './output/outputData.json'
+    output_data_file = open(output_json_path, 'w+')
+    output_file = open(params['output_file'], 'w+')
+
+    # Open the stability file and base history file
+    stab_file_path = os.path.join(params['stab_file'], params['vspname'] + '_DegenGeom.stab')
+    stab_file = open(stab_file_path, 'r')
+    input_base = params['base_file']
+    input_base_path = os.path.join(input_base, params['vspname'] + '_DegenGeom.history')
+    input_txt_base = open(input_base_path, 'r').readlines()
+    input_txt = {}
 
 
-# Read parameters from a configuration file
-with open('./runparams.jsonc', 'r') as param_file:
-    params = commentjson.load(param_file)
-
-# Prepare output files
-output_json_path = './output/outputData.json'
-output_data_file = open(output_json_path, 'w+')
-output_file = open(params['output_file'], 'w+')
-
-# Open the stability file and base history file
-stab_file_path = os.path.join(params['stab_file'], params['vspname'] + '.stab')
-stab_file = open(stab_file_path, 'r')
-input_base = params['base_file']
-input_base_path = os.path.join(input_base, params['vspname'] + '.history')
-input_txt_base = open(input_base_path, 'r').readlines()
-input_txt = {}
-
-# Default number of wake iterations
-wake_iterations = 3
-
-# Process command line arguments
-for arg in sys.argv:
-    if '--debug' in arg:
-        DEBUG = True
-    if arg.startswith('-w'):
-        wake_iterations = int(arg[2:])
-
-# Parse the history files for each run configuration
-input_txt = {}
-for file_name, config_paths in params['files'].items():
-    config_texts = {}
-    for config_path in config_paths:
-        print(f"Processing data from {config_path} filename {file_name}")
-
-        # Move up one directory level to get the deflection angle directory
-        deflection_angle_dir = os.path.basename(os.path.dirname(config_path))
-        history_file_path = os.path.join(config_path, params['vspname'] + '.history')
-        
-        with open(history_file_path, 'r') as file:
-            print(f"Processing data from {history_file_path}")
-            config_texts[deflection_angle_dir] = file.readlines()
-
-    input_txt[file_name] = config_texts
+    # Parse the history files for each run configuration
+    for control_group in params['deflection_cases']:
+        deflection_angles = params['deflection_cases'][control_group]
+        input_txt[control_group] = {}    
+        for deflection_angle in deflection_angles:
+            print(f"finding data for {control_group} with deflection angle {deflection_angle}")
+            history_file_path = os.path.join('output', control_group, str(deflection_angle), params['vspname'] + '_DegenGeom.history')
+            with open(history_file_path, 'r') as file:
+                print(f"found data from {history_file_path} deflection angle {deflection_angle}") 
+                input_txt[control_group][str(deflection_angle)] = file.readlines()
+                # input_txt[control_group][str(deflection_angle)] = ""
 
 
-    input_txt[file_name] = config_texts
+    # Database for storing parsed data
+    
+    db = {'base': {0: []}}
+    data_order = ['Mach', 'AoA', 'beta', 'CL', 'CDo', 'CDi', 'CDtot', 'CS', 'L/D', 'E', 'CFx', 'CFz', 'CFy', 'CMx', 'CMy', 'CMz', 'T/QS']
+    # print(json.dumps(input_txt, indent=4))
 
-# print(f"input_txt: {input_txt}")
+    # Process the base file data
+    print(f"Processing base data from {input_base_path}")
+    for i, line in enumerate(input_txt_base):
+        if line.startswith('Solver Case:'):
+            data_line = input_txt_base[i + 2 + wake_iterations]
+            parsed_data = parse_data_line(data_line, wake_iterations)
+            dataset = dict(zip(data_order, parsed_data))
+            db['base'][0].append(dataset)
 
-# Database for storing parsed data
-db = {'base': {0: []}}
-data_order = ['Mach', 'AoA', 'beta', 'CL', 'CDo', 'CDi', 'CDtot', 'CS', 'L/D', 'E', 'CFx', 'CFz', 'CFy', 'CMx', 'CMy', 'CMz', 'T/QS']
+    # Process data for each deflection case
+    for control_group in input_txt:
+        print(f"Processing data for {control_group}")
+        db[control_group] = {}
+        for deflection_angle in input_txt[control_group]:
+            print(f"Processing data for {control_group} with deflection angle {deflection_angle}")
+            db[control_group][deflection_angle] = []
+            lines = input_txt[control_group][deflection_angle]
+            for i, line in enumerate(lines):
+                if line.startswith('Solver Case:'):
+                    data_line = lines[i + 2 + wake_iterations]
+                    parsed_data = parse_data_line(data_line, wake_iterations)
+                    dataset = dict(zip(data_order, parsed_data))
+                    db[control_group][deflection_angle].append(dataset)
 
+    # Save database to file so we can review if needed
+    with open('./output/dataset.json', 'w+') as jf:
+        json.dump(db, jf, sort_keys=True, indent=4)
 
-# Process the base file data
-print(f"Processing base data from {input_base_path}")
-for i, line in enumerate(input_txt_base):
-    if line.startswith('Solver Case:'):
-        data_line = input_txt_base[i + 2 + wake_iterations]
-        parsed_data = parse_data_line(data_line, wake_iterations)
-        dataset = dict(zip(data_order, parsed_data))
-        db['base'][0].append(dataset)
+    # The following part of the script generates JSBSim configuration files.
+    # It constructs XML entries for each datapoint across various runs and positions.
+    # The script handles formatting, adjustment of small numbers, and XML structuring.
 
-# Process data for each configuration
-for s, files in input_txt.items():
-    print(f"Processing data for {s}")
-    db[s] = {}
-    for p, lines in files.items():
-        db[s][p] = []
-        for i, line in enumerate(lines):
-            if line.startswith('Solver Case:'):
-                data_line = lines[i + 2 + wake_iterations]
-                parsed_data = parse_data_line(data_line, wake_iterations)
-                dataset = dict(zip(data_order, parsed_data))
-                db[s][p].append(dataset)
+    desc = '''
+    <!-- 
+    Generated by vsp2jsbsim.py
+    Author: Juttner Domokos
+    Based on the work of Richard Harrison
+    -->
+    <aerodynamics>
 
-# Save database to file so we can review if needed
-with open('./output/dataset.json', 'w+') as jf:
-    json.dump(db, jf, sort_keys=True, indent=4)
+    <function name="aero/beta-deg-abs">
+        <description>Beta absolute value</description>
+        <abs>
+        <property>aero/beta-deg</property>
+        </abs>
+    </function>
 
-# The following part of the script generates JSBSim configuration files.
-# It constructs XML entries for each datapoint across various runs and positions.
-# The script handles formatting, adjustment of small numbers, and XML structuring.
+    <function name="aero/pb">
+        <description>PB Denormalization</description>
+        <product>
+        <property>aero/bi2vel</property>
+        <property>velocities/p-aero-rad_sec</property>
+        </product>
+    </function>
 
-desc = '''
-<!-- 
-Generated by vsp2jsbsim.py
-Author: Juttner Domokos
-Based on the work of Richard Harrison
--->
-<aerodynamics>
+    <function name="aero/qb">
+        <description>For denormalization</description>
+        <product>
+        <property>aero/ci2vel</property>
+        <property>velocities/q-aero-rad_sec</property>
+        </product>
+    </function>
 
-  <function name="aero/beta-deg-abs">
-    <description>Beta absolute value</description>
-    <abs>
-      <property>aero/beta-deg</property>
-    </abs>
-  </function>
+    <function name="aero/rb">
+        <description>For denormalization</description>
+        <product>
+        <property>aero/bi2vel</property>
+        <property>velocities/r-aero-rad_sec</property>
+        </product>
+    </function>
 
-  <function name="aero/pb">
-    <description>PB Denormalization</description>
-    <product>
-      <property>aero/bi2vel</property>
-      <property>velocities/p-aero-rad_sec</property>
-    </product>
-  </function>
+    '''
+    output_file.write(desc)
 
-  <function name="aero/qb">
-    <description>For denormalization</description>
-    <product>
-      <property>aero/ci2vel</property>
-      <property>velocities/q-aero-rad_sec</property>
-    </product>
-  </function>
+    output_data = params["data_to_axis_map"]
 
-  <function name="aero/rb">
-    <description>For denormalization</description>
-    <product>
-      <property>aero/bi2vel</property>
-      <property>velocities/r-aero-rad_sec</property>
-    </product>
-  </function>
+    # load sorted database
+    db = load_database()
 
-'''
-output_file.write(desc)
-
-output_data = params["data_to_axis_map"]
-
-# load sorted database
-db = load_database()
-
-# Process the data points
-process_data_in_database(output_file, output_data, db)
+    # Process the data points
+    process_data_in_database(output_file, output_data, db, params)
 
 
-#################################################################
-# Ground effect
-#################################################################
+    #################################################################
+    # Ground effect
+    #################################################################
 
-# for d in outputData.keys():
-#     ge = outputData[d]['ground_effect']
-#     alts = [i for i in ge.keys()]
-#     betas = [i for i in ge[alts[0]].keys()]             
-#     machs = [i for i in ge[betas[0]][alts[0]].keys()]
-#     aoa = [i for i in ge[betas[0]][alts[0]][machs[0]].keys()]
-#     output_file.write('  <function name="aero/' + datapoint + '_' + run + '_' + str(pos) + '">\n')
-#     output_file.write('    <table>\n')
-#     output_file.write('      <independentVar lookup="row">velocities/mach</independentVar>\n')
-#     output_file.write('      <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
-#     output_file.write('      <independentVar lookup="table">position/h-agl-m</independentVar>\n')
-#     for m in machs:
-#         output_file.write('      <tableData breakPoint="' + str(float(agl)) + '">\n')
-#         txt_CL = '                '
-#         for a in aoa:
-#             txt_CL += str(a) + ' '
-#         txt_CL += '\n'
-#         for a in alts:
-#             line = ' ' * 6 + a + ' '
-#             for c in 
+    # for d in outputData.keys():
+    #     ge = outputData[d]['ground_effect']
+    #     alts = [i for i in ge.keys()]
+    #     betas = [i for i in ge[alts[0]].keys()]             
+    #     machs = [i for i in ge[betas[0]][alts[0]].keys()]
+    #     aoa = [i for i in ge[betas[0]][alts[0]][machs[0]].keys()]
+    #     output_file.write('  <function name="aero/' + datapoint + '_' + run + '_' + str(pos) + '">\n')
+    #     output_file.write('    <table>\n')
+    #     output_file.write('      <independentVar lookup="row">velocities/mach</independentVar>\n')
+    #     output_file.write('      <independentVar lookup="column">aero/alpha-deg</independentVar>\n')
+    #     output_file.write('      <independentVar lookup="table">position/h-agl-m</independentVar>\n')
+    #     for m in machs:
+    #         output_file.write('      <tableData breakPoint="' + str(float(agl)) + '">\n')
+    #         txt_CL = '                '
+    #         for a in aoa:
+    #             txt_CL += str(a) + ' '
+    #         txt_CL += '\n'
+    #         for a in alts:
+    #             line = ' ' * 6 + a + ' '
+    #             for c in 
+                
             
-        
-#         machs = []
-#         aoa = []
-#         for m in outputData[datapoint][run][pos][b].keys():
-#             if m not in machs:
-#                 machs.append(m)
-#                 for a in outputData[datapoint][run][pos][b][m].keys():
-#                     a = str(float(a))
-#                     if len(a.split('.')[0]) < 3:
-#                         a = ' ' * (3 - len(a.split('.')[0])) + a
-#                     if len(a) < 6:
-#                         a += ' ' * (6 - len(a))
-#                     if a not in aoa:
-#                         txt_CL += a[:-3] + '    '
-#                         aoa.append(a)
-#         txt_CL = txt_CL[:-1] + '\n'
+    #         machs = []
+    #         aoa = []
+    #         for m in outputData[datapoint][run][pos][b].keys():
+    #             if m not in machs:
+    #                 machs.append(m)
+    #                 for a in outputData[datapoint][run][pos][b][m].keys():
+    #                     a = str(float(a))
+    #                     if len(a.split('.')[0]) < 3:
+    #                         a = ' ' * (3 - len(a.split('.')[0])) + a
+    #                     if len(a) < 6:
+    #                         a += ' ' * (6 - len(a))
+    #                     if a not in aoa:
+    #                         txt_CL += a[:-3] + '    '
+    #                         aoa.append(a)
+    #         txt_CL = txt_CL[:-1] + '\n'
 
-#         for m in outputData[datapoint][run][pos][b].keys():
-#             line = '        ' + str(float(m)) + '  '
-#             for c in outputData[datapoint][run][pos][b][m].values():
-#                 line += str(c) + '  '
-#             txt_CL += line[:-2] + '\n'
+    #         for m in outputData[datapoint][run][pos][b].keys():
+    #             line = '        ' + str(float(m)) + '  '
+    #             for c in outputData[datapoint][run][pos][b][m].values():
+    #                 line += str(c) + '  '
+    #             txt_CL += line[:-2] + '\n'
 
-#         output_file.write(txt_CL[:-1] + '\n')
-#         output_file.write('      </tableData>\n\n')
-#     output_file.write('    </table>\n')
-#     output_file.write('  </function>\n\n')
+    #         output_file.write(txt_CL[:-1] + '\n')
+    #         output_file.write('      </tableData>\n\n')
+    #     output_file.write('    </table>\n')
+    #     output_file.write('  </function>\n\n')
 
-#################################################################
+    #################################################################
 
-#################################################################
-# Stability Derivatives
-#################################################################
+    #################################################################
+    # Stability Derivatives
+    #################################################################
 
-process_stability_derivatives(stab_file, output_file, params)
+    process_stability_derivatives(stab_file, output_file, params)
 
-#################################################################
+    #################################################################
 
-# Take all the defined aero functions in the xml file and assign them to an axis
-output_data = params['run_data_to_axis']
-assign_aerodynamics_to_axis(output_file, output_data)
+    # Take all the defined aero functions in the xml file and assign them to an axis
+    output_data = params['run_data_to_axis']
+    assign_aerodynamics_to_axis(output_file, output_data)
 
 
-output_file.write('</aerodynamics>\n')
-output_file.close()
-output_data_file.close()
-print('process time:', time.process_time())
+    output_file.write('</aerodynamics>\n')
+    output_file.close()
+    output_data_file.close()
+    print('process time:', time.process_time())

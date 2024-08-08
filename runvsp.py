@@ -413,38 +413,8 @@ else:
 if not progress['completed']:
     progress['done'] = False
 
-# Prepare Mach, AoA, and Beta strings.
-mach = ""
-aoa = ""
-beta = "-20, -10, "
-for m in range(1, 10):
-    mach += f"{m * 0.1:.1f}, "
-mach = mach.rstrip(", ")
-
-for a in range(-10, 61, 5):
-    aoa += f"{a}, "
-aoa = aoa.rstrip(", ")
-
-for b in range(-5, 6):
-    beta += f"{b}, "
-beta += "10, 20"
-
-# Adjust Mach, AoA, and Beta based on resolution.
-if args.resolution != 'high':
-    mach = params['mach']
-    if args.resolution == 'medium':
-        aoa = params['aoa_medium']
-        beta = params['beta_medium']
-    else:
-        aoa = params['aoa_low']
-        beta = params['beta_low']
-
-print(f"Mach: {mach}!")
-print(f"AoA: {aoa}!")
-print(f"Beta: {beta}!")
 
 baseprops = dict()
-reserved_names = {'Mach': mach, 'AoA': aoa, 'Beta': beta, 'ClMax': params['CLmax']['base']}
 
 controlConfig = []
 
@@ -477,16 +447,19 @@ while row_number < len(lines):
         baseprops[name.strip()] = value.strip()
         row_number += 1
 
-    # if 'WakeIters' in line:
-    #     break
-
-print(baseprops)
 
 baseprops["WakeIters"] = str(args.wake)
+
+# set flow conditions set in config file
+baseprops["AoA"] = params['alpha']
+baseprops["Beta"] = params['beta']
+baseprops["Mach"] = params['mach']
+
 configprops = {"base": {"NumberOfControlGroups": "0"}}
 # seems usefull not sure how it works
 postprops = {"Preconditioner": "Matrix", "Karman-Tsien Correction": "N"}
 
+# don't this this is needed
 est_baseprops = {key: ('0.4' if key == 'Mach' else '5' if key == 'AoA' else '0' if key == 'Beta' else value) for key, value in baseprops.items()}
 
 signal.signal(signal.SIGINT, interrupthandler)
@@ -496,7 +469,7 @@ print('Cleanup:', args.cleanup)
 STARTTIME = time.localtime()
 
 # Run base case
-# update_vsp_configuration(params, baseprops, configprops, controlConfig, postprops, args, progress, ignore_list, only_list, args.dryrun)
+update_vsp_configuration(params, baseprops, configprops, controlConfig, postprops, args, progress, ignore_list, only_list, args.dryrun)
 
 # Run surface deflection cases
 run_deflection_cases(params, baseprops, progress, ignore_list, only_list, args)
