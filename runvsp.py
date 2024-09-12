@@ -8,6 +8,7 @@ import time
 import argparse
 import os 
 import shutil
+import copy
 from datetime import datetime
 from os import path
 from openvsp import vsp
@@ -182,10 +183,11 @@ def write_vsp_configuration(case_file_path: str, vspaero_filename: str, params: 
             file.write(f'{p} = {value}\n')
         
         # write surface deflection configurations
+        file.write(f"NumberOfControlGroups = {len(controlConfig)}\n")
         for control_group in controlConfig:
             file.write(f"{control_group['group_name']}\n")
-            file.write(f"{', '.join(control_group['surface_names'])}\n")
-            file.write(f"{', '.join([str(g) for g in control_group['gains']])}\n")
+            file.write(f"{','.join(control_group['surface_names'])}\n")
+            file.write(f"{','.join([str(g) for g in control_group['gains']])}\n")
             file.write(f"{control_group['deflection']}\n")
 
     create_degengeom_and_vsp3(case_file_path, params['vsp_filepath'], params['vsp3_file'], str(case))
@@ -198,7 +200,7 @@ def run_solver(case: str, case_file_path: str, args, progress: dict):
     # TODO: make this less WET
     if not args.dryrun or case == 'est':
         if os.name == 'posix':
-            if case == 'est':
+            if case != 'stab':
                 cmd = ['vspaero', '-omp', args.jobs, params['vspname'] + '_DegenGeom']
                 print(f"Running command: {cmd}, cwd: {case_file_path}")
                 subprocess.run(cmd, cwd=case_file_path, check=True)
@@ -250,6 +252,7 @@ def run_deflection_cases(params: dict, baseprops: dict, progress: dict, ignore_l
         # Skip runs based on ignore_list and only_list 
         if control_group in ignore_list or (only_list and control_group not in only_list):
             continue
+        newControlConfig = copy.deepcopy(controlConfig)
 
         for case in params['deflection_cases'][control_group]:
             # assuming control_group name is file safe
@@ -259,20 +262,29 @@ def run_deflection_cases(params: dict, baseprops: dict, progress: dict, ignore_l
                 # vsp_filename = case + params['vspname'] + '_DegenGeom.vspaero'
                 vspaero_filename = f"{params['vspname']}_DegenGeom.vspaero"
                 vspaero_txt = read_or_copy_vspaero_file(case_file_path, vspaero_filename, params)
-                vspaero_txt = update_vspaero_content(vspaero_txt, baseprops, params, control_group)
-                nochange = write_vspaero_file(case_file_path, vspaero_filename, vspaero_txt)
-                nochange &= update_csv_if_needed( f"{case_file_path}", params, control_group)
+                # vspaero_txt = update_vspaero_content(vspaero_txt, baseprops, params, control_group)
+                for i in range(0,len(newControlConfig)):
+                    print(f"{newControlConfig[i]["group_name"]} {control_group}" )
+                    if newControlConfig[i]["group_name"] == control_group:
+                        print(f"setting {newControlConfig[i]["group_name"]} to {case}")
+                        newControlConfig[i]["deflection"] = case
+                write_vsp_configuration(case_file_path, vspaero_filename, params, baseprops, configprops, newControlConfig, postprops, str(case))
+                # nochange = write_vspaero_file(case_file_path, vspaero_filename, vspaero_txt)
 
                 # if not nochange or args.force:
                 print(f"Running solver for case: {case}")
-                run_solver(case, case_file_path, args, progress)  # Assuming your 'run_solver' doesn't need 'case_file_path'
+                run_solver(case, case_file_path, args, progress) 
 
                 progress['completed'].append(case_file_path)
 
 def read_or_copy_vspaero_file(case_file_path: str, filename: str, params: dict) -> list:
-    """ Attempts to the .vspaero file for a case. if not, creates one based on the base case """
+    """ Attempts to read the .vspaero file for a case. If not found, creates one based on the base case. """
     
     full_vspaero_case_file_path = f"{case_file_path}/{filename}"
+    
+    # Ensure the directory exists
+    os.makedirs(case_file_path, exist_ok=True)
+    
     if not os.path.exists(f"{full_vspaero_case_file_path}"):
         src_file = f"{params['vsp_filepath']}/{params['vspname']}_DegenGeom.vspaero"
         print(f"Copying {src_file} to {full_vspaero_case_file_path}")
@@ -281,61 +293,8 @@ def read_or_copy_vspaero_file(case_file_path: str, filename: str, params: dict) 
     with open(full_vspaero_case_file_path, 'r') as file:
         return file.readlines()
 
-def update_vspaero_content(vspaero_txt: list, baseprops: dict, params: dict, run: str) -> list:
-    """ Updates VSP content based on run and base properties. """
-    output = []
-    for entry in baseprops:
-        if entry == 'ClMax' and run in params['CLmax']:
-            output.append(f"{entry} = {params['CLmax'][run]}\n")
-        elif entry == 'Beta' and run in params['alpha_only']:
-            output.append("Beta = 0\n")
-        else:
-            output.append(f"{entry} = {baseprops[entry]}\n")
-    output.extend(vspaero_txt[len(baseprops):])
-    return output
 
-def write_vspaero_file(case_file_path: str, vspaero_filename: str, vspaero_config: list) -> bool:
-    """ Writes vspaero_txt to a file and checks if it changed. If changed
-    the function returns False, otherwise True.
-    
-    Args:
-        case_file_path (str): Directory location to store output.
-        vspaero_filename (str): File name to write to.
-        vspaero_config (list): Configuration to write to the file.
 
-    Returns:
-        nochange bool: True if there was no change, False if there was a change.
-
-    """
-
-    # with open(vspaero_filename, 'r') as file:
-    #     old_vspaero_config = file.readlines()
-
-    # if old_vspaero_config == vspaero_config:
-    #     return True
-
-    print(f"Writing VSPAERO configuration to file: {case_file_path}/{vspaero_filename}")
-    with open(f"{case_file_path}/{vspaero_filename}", 'w') as file:
-        file.writelines(vspaero_config)
-    
-    return False
-
-def update_csv_if_needed(case_dir: str, params: dict, run: str) -> bool:
-    """ Updates CSV if required and checks for changes. 
-    
-        Returns: nochange bool: True if there was no change, False if there was a change.
-    """
-    csv_filename = f"{case_dir}{params['vspname']}_DegenGeom.csv"
-
-    # TODO implement the change check
-    # old_content = read_or_copy_vspaero_file(csv_filename, {})
-    if run not in params['manual_set']:
-        create_degengeom_and_vsp3(case_dir, params['vsp_filepath'], params['vsp3_file'], run)
-    else:
-        # this case probable doesn't work
-        create_degengeom_and_vsp3(case_dir, params['vsp3_file'], params['manual_set'][run], True, int(run.split('/')[-2]))
-    # new_content = read_or_copy_vspaero_file(csv_filename, {})
-    return True
 
 def read_control_groups(lines, num_control_groups):
 
@@ -455,6 +414,10 @@ baseprops["AoA"] = params['alpha']
 baseprops["Beta"] = params['beta']
 baseprops["Mach"] = params['mach']
 
+baseprops["X_cg"] = params['CGLoc'][0]
+baseprops["Y_cg"] = params['CGLoc'][1]
+baseprops["Z_cg"] = params['CGLoc'][2]
+
 configprops = {"base": {"NumberOfControlGroups": "0"}}
 # seems usefull not sure how it works
 postprops = {"Preconditioner": "Matrix", "Karman-Tsien Correction": "N"}
@@ -472,7 +435,7 @@ STARTTIME = time.localtime()
 update_vsp_configuration(params, baseprops, configprops, controlConfig, postprops, args, progress, ignore_list, only_list, args.dryrun)
 
 # Run surface deflection cases
-run_deflection_cases(params, baseprops, progress, ignore_list, only_list, args)
+# run_deflection_cases(params, baseprops, progress, ignore_list, only_list, args)
 
 
 print('FINISHED')

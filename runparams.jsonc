@@ -2,8 +2,8 @@
     // this contains a list of the control groups in the vsp3 model. each control group accepts 
     // an array of deflections in degrees
     "deflection_cases": {
-        "elevator": [1, 4],
-        "aileron": [1, 4],
+        "elevators": [1, 4],
+        "ailerons": [1, 4],
         "rudder": [1, 4]
     },
     // theses probably don't need to be configs refactor in future
@@ -29,6 +29,7 @@
     "alpha": "0,5,10",
     "beta": "0,5,10",
     "mach": "0.2,0.3",
+    "CGLoc" : [ 9.879, 0.0, 1.358 ],
     "run_data_to_axis": {
         "moments": {
             "yaw": ["aero/s/cmnp", "aero/s/cmnr", "aero/CMz_base"],
@@ -65,7 +66,7 @@
             "base": {
                 "0": {}
             },
-            "aileron": {
+            "ailerons": {
                 "1": {},
                 "4": {}
             }
@@ -74,7 +75,7 @@
             "base": {
                 "0": {}
             },
-            "elevator": {
+            "elevators": {
                 "1": {},
                 "4": {}
             }

@@ -354,8 +354,8 @@ if __name__ == '__main__':
     output_file = open(params['output_file'], 'w+')
 
     # Open the stability file and base history file
-    stab_file_path = os.path.join(params['stab_file'], params['vspname'] + '_DegenGeom.stab')
-    stab_file = open(stab_file_path, 'r')
+    # stab_file_path = os.path.join(params['stab_file'], params['vspname'] + '_DegenGeom.stab')
+    # stab_file = open(stab_file_path, 'r')
     input_base = params['base_file']
     input_base_path = os.path.join(input_base, params['vspname'] + '_DegenGeom.history')
     input_txt_base = open(input_base_path, 'r').readlines()
@@ -523,7 +523,7 @@ if __name__ == '__main__':
     # Stability Derivatives
     #################################################################
 
-    process_stability_derivatives(stab_file, output_file, params)
+    # process_stability_derivatives(stab_file, output_file, params)
 
     #################################################################
 
