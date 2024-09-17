@@ -55,8 +55,8 @@ def create_degengeom_and_vsp3(case_dir: str, src_file_path: str, vspfile: str , 
         os.makedirs(case_dir)
 
     # remove old outputs
-    if name in params['surf_names']:
-        name = params['surf_names'][name]
+    # if name in params['surf_names']:
+    #     name = params['surf_names'][name]
 
     try:
         os.remove(f"{case_dir}/{params['vspname']}_DegenGeom.csv")
@@ -325,8 +325,6 @@ def read_control_groups(lines, num_control_groups):
 
 
 # Read parameters from a JSON file.
-with open('./runparams.jsonc', 'r') as p:
-    params = commentjson.loads(p.read())
 
 # Set up command line argument parsing.
 parser = argparse.ArgumentParser(description="Script to run VSPAERO with various options.")
@@ -339,6 +337,7 @@ parser.add_argument('--wake', '-w', help='Number of wake iterations', default=3,
 parser.add_argument('--force', '-f', help='Re-compute everything', action='store_true')
 parser.add_argument('--ignore', '-i', help='Cases to skip, comma separated', metavar='FOO,BAR')
 parser.add_argument('--only', '-o', help='Only run these cases, comma separated', metavar='FOO,BAR')
+parser.add_argument('--runparams', '-p', help='runparams.jsonc file', default='./runparams.jsonc', type=str)
 parser.add_argument('--progressfile', type=str)
 args = parser.parse_args()
 
@@ -346,6 +345,9 @@ args = parser.parse_args()
 if args.ignore is not None and args.only is not None:
     print('Cannot use --only and --ignore at the same time')
     exit()
+
+with open(args.runparams, 'r') as p:
+    params = commentjson.loads(p.read())
 
 ignore_list = args.ignore.split(',') if args.ignore is not None else []
 only_list = args.only.split(',') if args.only is not None else []
@@ -435,7 +437,7 @@ STARTTIME = time.localtime()
 update_vsp_configuration(params, baseprops, configprops, controlConfig, postprops, args, progress, ignore_list, only_list, args.dryrun)
 
 # Run surface deflection cases
-# run_deflection_cases(params, baseprops, progress, ignore_list, only_list, args)
+run_deflection_cases(params, baseprops, progress, ignore_list, only_list, args)
 
 
 print('FINISHED')

@@ -79,12 +79,13 @@ def process_data_in_database(output_file, output_data, db, params):
         for control_group in output_data[datapoint]:
             output_file.write(f'  <!-- {control_group} -->\n')
             for pos in output_data[datapoint][control_group]:
+                print(pos)
                 # betas = sorted(set(float(d['beta']) for d in db[run][pos]))
 
                 # Generate or update entries in the output data structure
                 print(f"Processing data for {datapoint} {control_group} {pos}")
                 for d in db[control_group][pos]:
-                    beta = format_value(float(d['beta']), 1)
+                    beta = format_value(float(d['Beta']), 1)
                     mach = format_value(float(d['Mach']), 3)
                     aoa = format_value(float(d['AoA']), 3)
                     value = small_number_check(float(f"{d[datapoint]:.5f}"))
@@ -94,7 +95,6 @@ def process_data_in_database(output_file, output_data, db, params):
                         # base_value = small_number_check(float(output_data[datapoint]['base'][0][beta][mach][aoa]))
                         base_value = small_number_check(float(output_data[datapoint]['base']['0'][beta][mach][aoa]))
                         value -= base_value
-                    print(type(output_data[datapoint][control_group]))
                     output_data[datapoint][control_group][pos].setdefault(beta, {}).setdefault(mach, {})[aoa] = format_value(value)
 
                 # Write to JSON after updating data
@@ -105,7 +105,9 @@ def process_data_in_database(output_file, output_data, db, params):
                 if control_group == 'ground_effect':
                     continue
 
-                func_name = f'aero/{datapoint}_{control_group}_{pos}' if control_group != 'base' else f'aero/{datapoint}_{control_group}'
+                print(pos)
+                # pos_str = f"{pos:.1f}"
+                func_name = f'aero/{datapoint}_{control_group}_{pos.replace("-", "n")}' if control_group != 'base' else f'aero/{datapoint}_{control_group}'
                 output_file.write(f'  <function name="{func_name}">\n')
                 output_file.write('    <table>\n')
                 output_file.write('      <independentVar lookup="row">velocities/mach</independentVar>\n')
@@ -115,9 +117,9 @@ def process_data_in_database(output_file, output_data, db, params):
                 output_file.write('    </table>\n')
                 output_file.write('  </function>\n\n')
 
-                # Handling interpolation for non-base and non-ground effect data
-                if control_group not in ['base', 'ground_effect']:
-                    interpolate_data_points(output_file, datapoint, control_group, output_data)
+            # Handling interpolation for non-base and non-ground effect data
+            if control_group not in ['base', 'ground_effect']:
+                interpolate_data_points(output_file, datapoint, control_group, output_data)
 
 def interpolate_data_points(output_file, datapoint, run, output_data):
     """Creates interpolation functions for aerodynamic data points."""
@@ -133,14 +135,18 @@ def interpolate_data_points(output_file, datapoint, run, output_data):
     for position in positions:
         position = float(position)
         print(f"position: {position}")
-        if last_position is None or last_position < 0 and position > 0:
-            output_file.write('      <value>0</value> <value>0</value>\n')
-        output_file.write(f'      <value>{position}</value> <property>aero/{datapoint}_{run}_{position}</property>\n')
+        # if last_position is None or last_position < 0 and position > 0:
+        #     output_file.write('      <value>0</value> <value>0</value>\n')
+        pos_str = f"{position:.1f}"
+        print(pos_str)
+        pos_str = pos_str.replace("-","n")
+        print(pos_str)
+        output_file.write(f'      <value>{position}</value> <property>aero/{datapoint}_{run}_{pos_str.replace("-", "n")}</property>\n')
         last_position = position
 
     print('last_position:', last_position)
-    if float(last_position) < 0:
-        output_file.write('      <value>0</value> <value>0</value>\n')
+    # if float(last_position) < 0:
+    #     output_file.write('      <value>0</value> <value>0</value>\n')
     output_file.write('    </interpolate1d>\n')
     output_file.write('  </function>\n\n')
 
@@ -159,25 +165,30 @@ def write_axis(output_file, group, axis, properties):
       <product>
         <property>aero/qbar-psf</property>
         <property>metrics/Sw-sqft</property>
-        {extra_properties}
-        <sum>
-{properties}
-        </sum>
-      </product>
+{extra_properties}{properties_block}      </product>
     </function>
   </axis>
 """
 
     # Conditional string inclusion based on specific criteria
-    extra_properties = ''
     if group == 'moments':
         if axis == 'pitch' or axis == 'roll':
-            extra_properties = '<property>metrics/bw-ft</property>\n'
+            extra_properties = '        <property>metrics/bw-ft</property>\n'
         elif axis == 'yaw':
-            extra_properties = '<property>metrics/cbarw-ft</property>\n'
+            extra_properties = '        <property>metrics/cbarw-ft</property>\n'
+        else:
+            extra_properties = ''
+    else:
+        extra_properties = ''
 
     # Compose the property elements from the provided properties
     property_elements = '\n'.join(f'          <property>{prop}</property>' for prop in properties)
+
+    # Conditional inclusion of <sum> tag
+    if len(properties) > 1:
+        properties_block = '        <sum>\n{0}\n        </sum>\n'.format(property_elements)
+    else:
+        properties_block = property_elements + '\n'
 
     # Fill the template with actual data
     formatted_axis = axis_template.format(
@@ -185,11 +196,12 @@ def write_axis(output_file, group, axis, properties):
         group=group,
         axis=axis,
         extra_properties=extra_properties,
-        properties=property_elements
+        properties_block=properties_block
     )
 
     # Write the formatted string to file
     output_file.write(formatted_axis)
+
 
 def assign_aerodynamics_to_axis(output_file, output_data):
     """Generates aerodynamic properties based on the specified structure."""
@@ -338,6 +350,7 @@ if __name__ == '__main__':
     # Adding optional arguments
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('-w', '--wake_iterations', type=int, default=3, help='Number of wake iterations')
+    parser.add_argument('--runparams', '-p', help='runparams.jsonc file', default='./runparams.jsonc', type=str)
 
     args = parser.parse_args()
 
@@ -345,7 +358,7 @@ if __name__ == '__main__':
     wake_iterations = args.wake_iterations
 
     # Read parameters from a configuration file
-    with open('./runparams.jsonc', 'r') as param_file:
+    with open(args.runparams, 'r') as param_file:
         params = commentjson.load(param_file)
 
     # Prepare output files
@@ -353,9 +366,7 @@ if __name__ == '__main__':
     output_data_file = open(output_json_path, 'w+')
     output_file = open(params['output_file'], 'w+')
 
-    # Open the stability file and base history file
-    # stab_file_path = os.path.join(params['stab_file'], params['vspname'] + '_DegenGeom.stab')
-    # stab_file = open(stab_file_path, 'r')
+
     input_base = params['base_file']
     input_base_path = os.path.join(input_base, params['vspname'] + '_DegenGeom.history')
     input_txt_base = open(input_base_path, 'r').readlines()
@@ -368,17 +379,21 @@ if __name__ == '__main__':
         input_txt[control_group] = {}    
         for deflection_angle in deflection_angles:
             print(f"finding data for {control_group} with deflection angle {deflection_angle}")
-            history_file_path = os.path.join('output', control_group, str(deflection_angle), params['vspname'] + '_DegenGeom.history')
+            defflection_angle_str = f"{deflection_angle:.1f}"
+            history_file_path = os.path.join('output', control_group, defflection_angle_str, params['vspname'] + '_DegenGeom.history')
             with open(history_file_path, 'r') as file:
-                print(f"found data from {history_file_path} deflection angle {deflection_angle}") 
-                input_txt[control_group][str(deflection_angle)] = file.readlines()
+                print(f"found data from {history_file_path} deflection angle {defflection_angle_str}") 
+                input_txt[control_group][defflection_angle_str] = file.readlines()
                 # input_txt[control_group][str(deflection_angle)] = ""
 
 
     # Database for storing parsed data
     
     db = {'base': {0: []}}
-    data_order = ['Mach', 'AoA', 'beta', 'CL', 'CDo', 'CDi', 'CDtot', 'CS', 'L/D', 'E', 'CFx', 'CFz', 'CFy', 'CMx', 'CMy', 'CMz', 'T/QS']
+
+    #               Mach, AoA, Beta, CLo,CLi, CLtot, CDo, CDi, CDtot, CDt, CDtot_t, CSo, CSi, CStot, L/D, E, CFxo, CFyo, CFzo, CFxi, CFyi, CFzi, CFxtot, CFytot, CFztot, CMxo, CMyo, CMzo, CMxi, CMyi, CMzi, CMxtot, CMytot, CMztot, T/QS 
+    # data_order = ['Mach', 'AoA', 'beta', 'CL', 'CDo', 'CDi', 'CDtot', 'CS', 'L/D', 'E', 'CFx', 'CFz', 'CFy', 'CMx', 'CMy', 'CMz', 'T/QS']
+    data_order = ['Mach', 'AoA', 'Beta', 'CLo','CLi', 'CLtot', 'CDo', 'CDi', 'CDtot', 'CDt', 'CDtot_t', 'CSo', 'CSi', 'CStot', 'L/D', 'E', 'CFxo', 'CFyo', 'CFzo', 'CFxi', 'CFyi', 'CFzi', 'CFxtot', 'CFytot', 'CFztot', 'CMxo', 'CMyo', 'CMzo', 'CMxi', 'CMyi', 'CMzi', 'CMxtot', 'CMytot', 'CMztot', 'T/QS' ]
     # print(json.dumps(input_txt, indent=4))
 
     # Process the base file data
@@ -523,7 +538,11 @@ if __name__ == '__main__':
     # Stability Derivatives
     #################################################################
 
-    # process_stability_derivatives(stab_file, output_file, params)
+
+    # Open the stability file and base history file
+    stab_file_path = os.path.join(params['stab_file'], params['vspname'] + '_DegenGeom.stab')
+    stab_file = open(stab_file_path, 'r')
+    process_stability_derivatives(stab_file, output_file, params)
 
     #################################################################
 
