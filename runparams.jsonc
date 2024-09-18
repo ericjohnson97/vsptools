@@ -1,0 +1,93 @@
+{
+    // this contains a list of the control groups in the vsp3 model. each control group accepts 
+    // an array of deflections in degrees
+    "deflection_cases": {
+        "elevators": [1, 4],
+        "ailerons": [1, 4],
+        "rudder": [1, 4]
+    },
+    // theses probably don't need to be configs refactor in future
+    "base_file": "./output/base/",
+    "est_file": "./output/est/",
+    ////////////////////////////////////////////
+    "output_file": "./output/Cessna-210.xml",
+    "stab_file": "./output/stab/",
+    "vsp_filepath": "example/Cessna-210-NASA",
+    
+    // TODO remove this key value pair
+    "vsp3_file": "Cessna-210.vsp3",
+    "vspname": "Cessna-210",
+    "manual_set": {},
+    "surf_names": {
+        "left-flaperon": "flaperon",
+        "right-flaperon": "flaperon"
+    },
+    "CLmax": {
+        "base": "0.9692",
+        "flaps": "1.1131"
+    },
+    "alpha": "0,5,10",
+    "beta": "0,5,10",
+    "mach": "0.2,0.3",
+    "CGLoc" : [ 9.879, 0.0, 1.358 ],
+    "run_data_to_axis": {
+        "moments": {
+            "yaw": ["aero/s/cmnp", "aero/s/cmnr", "aero/CMz_base"],
+            "pitch": ["aero/s/cmmq", "aero/s/cmma", "aero/CMy_base", "aero/CMy_elevator"],
+            "roll": ["aero/s/cmlp", "aero/s/cmlr", "aero/CMx_base"]
+        },
+        "forces": {
+            "lift": ["CL_base"],
+            "drag": ["CDtot_base"],
+            "side": ["aero/s/cfyp", "aero/s/cfyr", "aero/CS_base"]
+        }
+    },
+    // specify which run data affects which axis. 
+    // NOTE: the base case is named "base" and mapped to "0". all other runs will have the base 
+    //       case coefficients subtracted from them, so that a certain surface deflection will 
+    //       only add the effect of that surface deflection
+    "data_to_axis_map": {
+        "CL": {
+            "base": {
+                "0": {}
+            }
+        },
+        "CDtot": {
+            "base": {
+                "0": {}
+            }
+        },
+        "CS": {
+            "base": {
+                "0": {}
+            }
+        },
+        "CMx": {
+            "base": {
+                "0": {}
+            },
+            "ailerons": {
+                "1": {},
+                "4": {}
+            }
+        },
+        "CMy": {
+            "base": {
+                "0": {}
+            },
+            "elevators": {
+                "1": {},
+                "4": {}
+            }
+        },
+        "CMz": {
+            "base": {
+                "0": {}
+            },
+            "rudder": {
+                "1": {},
+                "4": {}
+            }
+        }
+    }
+}

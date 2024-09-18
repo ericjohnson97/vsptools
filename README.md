@@ -4,47 +4,40 @@ Special thanks to Jüttner Domokos for publishing his work. This repository is a
 
 This project is a work in progress and does not work yet, but I am looking forward to working on this more in the coming months.
 
-## Author: Jüttner Domokos
-## Licence: GPLv2
+## Work Flow
 
-# plotdraw.py
-Generate a plot of the VSP .history output
-usage:
-`$ python3 plotdraw.py path/to/vsp.history {options}`
+- 1. create a .vsp3 model with control surface groups
+- 2. run runvsp.py to generate aerodynamic data
+- 3. run vsp2jsbsim.py to generate JSBSim model
+
+
+## runvsp.py
+```bash
+(base) root@048e35b505b8:/workspaces/vsptools# python3 runvsp.py --help
+WARNING 7: VSPAERO Viewer Not Found. 
+        Expected here: /opt/conda/lib/python3.12/site-packages/openvsp/vspviewer
+usage: runvsp.py [-h] [--dryrun] [--cleanup] [--verbose] [--resolution {low,medium,high}] [--jobs JOBS] [--wake WAKE] [--force] [--ignore FOO,BAR]
+                 [--only FOO,BAR] [--progressfile PROGRESSFILE]
+
+Script to run VSPAERO with various options.
 
 options:
-	-x
-		value may be `AoA`, `Mach`, `beta`
-		defaults to AoA
-	-y
-	    value may be `Mach`, `AoA`, `beta`, `CL`, `CDo`, `CDi`, `CDtot`, `CS`,
-		`L/D`, `E`, `CFx`, `CFz`, `CFy`, `CMx`, `CMz`, `CMy`, `T/QS`
-		defaults to CL
+  -h, --help            show this help message and exit
+  --dryrun, -d          Execute without running VSPAERO
+  --cleanup, -c         Remove all files but .lod, .history, and .stab
+  --verbose, -v         Increase verbosity
+  --resolution {low,medium,high}, -r {low,medium,high}
+                        Set resolution of run
+  --jobs JOBS, -j JOBS  -omp setting of VSPAERO
+  --wake WAKE, -w WAKE  Number of wake iterations
+  --force, -f           Re-compute everything
+  --ignore FOO,BAR, -i FOO,BAR
+                        Cases to skip, comma separated
+  --only FOO,BAR, -o FOO,BAR
+                        Only run these cases, comma separated
+  --progressfile PROGRESSFILE
+```
 
-# runvsp.py
-options:
-
-	-jn
-		n is the number of threads passed to vspaero with the -omp setting
-
-	-wn
-		n is the number of wake iterations, defaults to 3
-		
-	-d
-		dryrun, all files are generated but vspaero isn't executed
-	-h 
-		high-res run
-	-m
-		medium-res run
-	-c
-		cleanup, removes files that are later not used. Can save large amounts
-		of storage, .adb files in particular can make up ~90% of the used
-		space
-		
-	-v
-		verbose, also writes out .vsp3 for every case
-	--progressfile=progressfile.json
-		continue from where last session was interrupted
 		
 generates .cvs, vspaero files and runs vspaero based on the parameters defined
 in `runparams.json` - see included example.
@@ -54,24 +47,45 @@ page](https://kontor.ca/post/how-to-compile-openvsp-python-api/) on how to creat
 run.sh and runstab.sh need to be copied into the working directory for this
 script to work.
 
-# vsp2jsbsim.py
+## vsp2jsbsim.py
+
+```bash
+(base) root@048e35b505b8:/workspaces/vsptools# python3 vsp2jsbsim.py --help
+usage: vsp2jsbsim.py [-h] [--debug] [-w WAKE_ITERATIONS]
+
+Process some integers.
+
 options:
+  -h, --help            show this help message and exit
+  --debug               Enable debug mode
+  -w WAKE_ITERATIONS, --wake_iterations WAKE_ITERATIONS
+                        Number of wake iterations
+```
 
-	-wn
-		n is number of wake iterations, defaults to 3
-		
-	--debug
-		enables a few extra print statements, nothing that particularly
-		benefits the user, used for development
-		
-extracts the data from the .history files and formats them into jsbsim tables.
-Takes the same runparams.json as input
+### vsp2jsbsim.py design:
 
-It does not create the <axis> definitions, those need to be done manually
+the script performs the following high-level steps in this order:
+- read runparams.json
+- read .history files and map aerodata to a database named `dataset.json`
+- write database to file to allow for manual inspection if needed
+- process aerodata in database and write data to JSB functions in output XML
+- read stability file from stability analysis
+- process stability data and write data to JSB functions in output XML
+- assign stability and aerodata to the appropriate axis
+- write output XML
 
-# First time setup:
-- create .vsp3 model with all necessary control surfaces. control surface names should match the names in runparams['files'], except the ones specified in manual_set to be rotated instead of using subsurfaces.
-- set up folder structure and create initial .vspaero files (TODO: automate this part step based on runparams.json input)
-- write runparams.json
+
+## First time setup:
+- create .vsp3 model with all necessary control surfaces. The control Surfaces group names should be used as the keys in the `deflection_cases` section of the `runparams.jsonc` file. The arrays should be a list of the deflection angles for each surface deflection case VSP will run.  
+
+```json
+	"deflection_cases": {
+        "elevators": [1, 4],
+        "ailerons": [1, 4],
+        "rudder": [1, 4]
+    },
+```
+
+- Fill out the rest of runparams.json
 
 After this, each time a new version is made of the .vsp3 file, the new tables may be calculated with runvsp.py, then the data extracted with vsp2jsbsim.py.

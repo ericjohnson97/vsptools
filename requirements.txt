@@ -1,0 +1,4 @@
+commentjson==0.9.0
+fluids==1.0.26
+matplotlib==3.9.1
+numpy==2.0.1
