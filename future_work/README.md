@@ -1,0 +1,1 @@
+These files are used to generate engine thrust requirements for your aircraft. This was work that Jüttner Domokos had set up. However, I am not particularly interested in this feature at the moment and don't wish to maintain it. However, I may come back to this in the future so I am leaving it here for now.
