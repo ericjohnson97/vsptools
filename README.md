@@ -13,11 +13,11 @@ This project is a work in progress and does not work yet, but I am looking forwa
 
 ## runvsp.py
 ```bash
-(base) root@048e35b505b8:/workspaces/vsptools# python3 runvsp.py --help
+python3 runvsp.py --help
 WARNING 7: VSPAERO Viewer Not Found. 
         Expected here: /opt/conda/lib/python3.12/site-packages/openvsp/vspviewer
-usage: runvsp.py [-h] [--dryrun] [--cleanup] [--verbose] [--resolution {low,medium,high}] [--jobs JOBS] [--wake WAKE] [--force] [--ignore FOO,BAR]
-                 [--only FOO,BAR] [--progressfile PROGRESSFILE]
+usage: runvsp.py [-h] [--dryrun] [--cleanup] [--verbose] [--resolution {low,medium,high}] [--jobs JOBS] [--wake WAKE] [--force] [--ignore FOO,BAR] [--only FOO,BAR]
+                 [--runparams RUNPARAMS] [--progressfile PROGRESSFILE]
 
 Script to run VSPAERO with various options.
 
@@ -35,6 +35,8 @@ options:
                         Cases to skip, comma separated
   --only FOO,BAR, -o FOO,BAR
                         Only run these cases, comma separated
+  --runparams RUNPARAMS, -p RUNPARAMS
+                        runparams.jsonc file
   --progressfile PROGRESSFILE
 ```
 
@@ -50,8 +52,8 @@ script to work.
 ## vsp2jsbsim.py
 
 ```bash
-(base) root@048e35b505b8:/workspaces/vsptools# python3 vsp2jsbsim.py --help
-usage: vsp2jsbsim.py [-h] [--debug] [-w WAKE_ITERATIONS]
+python3 vsp2jsbsim.py --help
+usage: vsp2jsbsim.py [-h] [--debug] [-w WAKE_ITERATIONS] [--runparams RUNPARAMS]
 
 Process some integers.
 
@@ -60,6 +62,8 @@ options:
   --debug               Enable debug mode
   -w WAKE_ITERATIONS, --wake_iterations WAKE_ITERATIONS
                         Number of wake iterations
+  --runparams RUNPARAMS, -p RUNPARAMS
+                        runparams.jsonc file
 ```
 
 ### vsp2jsbsim.py design:
