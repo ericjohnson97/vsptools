@@ -2,3 +2,5 @@ OpenVSP-*-win64
 .venv
 output
 progress.json
+outputData.json
+jsb_models
